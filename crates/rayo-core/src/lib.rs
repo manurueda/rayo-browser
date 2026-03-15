@@ -20,9 +20,11 @@
 
 pub mod actions;
 pub mod batch;
+pub mod browser;
 pub mod error;
 pub mod page_map;
 pub mod selector_cache;
 pub mod wait;
 
+pub use browser::{RayoBrowser, RayoPage};
 pub use error::RayoError;

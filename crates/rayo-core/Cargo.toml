@@ -16,3 +16,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 rayo-profiler = { path = "../rayo-profiler" }
+base64 = "0.22"
+
+[dev-dependencies]
+which = "6"

@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description = "The fastest MCP browser automation server"
 
+[lib]
+name = "rayo_mcp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rayo-mcp"
 path = "src/main.rs"
@@ -22,3 +26,6 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 rmcp = { version = "0.1", features = ["server", "transport-io"] }
+
+[dev-dependencies]
+which = "6"
