@@ -2,7 +2,15 @@
 
 **The most token-efficient MCP browser automation tool.** Rust-powered, benchmark-proven, AI-native.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=manurueda/rayo-browser&type=Date)](https://www.star-history.com/#manurueda/rayo-browser&Date)
+## Install
+
+```bash
+# Install
+cargo install rayo-mcp
+
+# Add to Claude Code
+claude mcp add rayo -- rayo-mcp
+```
 
 ## Why rayo?
 
@@ -10,65 +18,49 @@ AI agents using Playwright for browser automation are painfully slow. Not becaus
 
 | Problem | Playwright | rayo-browser |
 |---------|-----------|-------------|
-| Relay server overhead | 2nd WebSocket hop, 326KB WS data | Direct CDP, 11KB WS data |
 | Actions per MCP call | 1 action = 1 call | `rayo_batch`: 10 actions in 1 call |
-| Page understanding | Screenshot: ~100k tokens | Page map: ~500 tokens |
-| Auto-waits | Polling every 100-200ms | Event-driven (zero polling) |
-| Tool descriptions | ~13,700 tokens | ~1,500 tokens |
-| Speed guidance | None | Built-in rules with runtime feedback |
+| Page understanding | Screenshot: ~5,500 tokens | Page map: ~120 tokens |
+| Tool descriptions | 22 tools, ~13,200 tokens | 7 tools, ~1,500 tokens |
+| Context window cost | 6.60% of 200k | 0.75% of 200k |
 
 ## Architecture
 
 ```
-AI Agent (Claude, Cursor, etc.)
-         │
-    MCP (stdio/SSE)
-         │
-    ┌────▼────┐
-    │ rayo-mcp │  ← 6 tools, ~1,500 tokens
-    │  batch   │
-    │  rules   │
-    │  profiler │
-    ├──────────┤
-    │ rayo-core │  ← page maps, selector cache, event waits
-    ├──────────┤
-    │chromium- │  ← CDP protocol (don't rebuild, reuse)
-    │  oxide   │
-    └────┬─────┘
-         │
+AI Agent (Claude Code, Cursor, etc.)
+         |
+    MCP (stdio)
+         |
+    +----------+
+    | rayo-mcp |  <- 7 tools, ~1,500 tokens
+    |  batch   |
+    |  rules   |
+    |  profiler |
+    +----------+
+    | rayo-core |  <- page maps, selector cache, tabs, network
+    +----------+
+    |chromium- |  <- CDP protocol
+    |  oxide   |
+    +----+-----+
+         |
     Chrome/Chromium
 ```
 
-Built on [chromiumoxide](https://github.com/nickel-org/chromiumoxide) (1.2k stars, 1.2M+ downloads) for CDP. We don't rebuild solved problems — we build the AI-native layer on top.
-
-## Quick Start
-
-```bash
-# Install
-cargo install rayo-mcp
-
-# Add to Claude Code
-echo '{"mcpServers": {"rayo": {"command": "rayo-mcp"}}}' > ~/.claude.json
-
-# Or run directly
-rayo-mcp
-```
-
-## The 6 MCP Tools
+## The 7 MCP Tools
 
 | Tool | Purpose | Tokens |
 |------|---------|--------|
-| `rayo_navigate` | goto, reload, back, forward | ~200 |
-| `rayo_observe` | page_map, text, screenshot, a11y | ~300 |
+| `rayo_navigate` | goto, reload, back, forward, new_tab, close_tab, list_tabs, switch_tab | ~300 |
+| `rayo_observe` | page_map, text, screenshot | ~300 |
 | `rayo_interact` | click, type, select, scroll | ~250 |
 | `rayo_batch` | execute multiple actions in 1 call | ~350 |
-| `rayo_network` | intercept, block, modify requests | ~250 |
+| `rayo_cookie` | set, get, clear cookies | ~250 |
+| `rayo_network` | capture, block, mock, requests | ~250 |
 | `rayo_profile` | get profiling results | ~150 |
 | **Total** | | **~1,500** |
 
 ## Key Innovation: Page Maps
 
-Instead of screenshots (100k tokens) or raw HTML (50k tokens):
+Instead of screenshots (~5,500 tokens) or raw HTML (~50k tokens):
 
 ```json
 {
@@ -85,7 +77,7 @@ Instead of screenshots (100k tokens) or raw HTML (50k tokens):
 }
 ```
 
-**~500 tokens. 200x more efficient than a screenshot.**
+**~120 tokens. 46x more efficient than a screenshot.**
 
 ## Key Innovation: Batch Actions
 
@@ -101,9 +93,45 @@ Instead of screenshots (100k tokens) or raw HTML (50k tokens):
 }
 ```
 
-4 actions in 1 MCP call. Without batch: 4 round-trips through the LLM. **~4x faster.**
+4 actions in 1 MCP call. Without batch: 4 round-trips through the LLM.
 
-## Built-in Profiling (On by Default)
+## Benchmarks
+
+Real numbers from real websites. 10 iterations, 3 warmup, warm browsers.
+
+### AI Agent Sessions (Real Claude Code Patterns)
+
+| Workflow | Metric | Playwright MCP | rayo-browser | Advantage |
+|----------|--------|---------------|-------------|----------|
+| Wikipedia Research | Latency | 219ms | 186ms | rayo 1.2x faster |
+| | Total tokens | 100,367 | 22,452 | **78% fewer** |
+| Form Fill + Submit | Latency | 392ms | 646ms | PW 1.6x faster |
+| | Total tokens | 23,311 | 2,990 | **87% fewer** |
+| HN Browse + Read | Latency | 945ms | 472ms | rayo 2.0x faster |
+| | Total tokens | 77,242 | 11,770 | **85% fewer** |
+
+### Page Understanding
+
+| Method | Adapter | Latency | ~Tokens |
+|--------|---------|---------|--------|
+| **page_map** | **rayo** | **<1ms** | **~120** |
+| text | rayo | <1ms | ~47 |
+| screenshot | playwright | 17ms | ~5,526 |
+
+### Tool Description Token Cost
+
+| MCP Server | Tools | Tokens | % of 200k Context |
+|-----------|-------|--------|-------------------|
+| **rayo-browser** | **7** | **~1,500** | **0.75%** |
+| Puppeteer MCP | 9 | ~4,500 | 2.25% |
+| Playwright MCP | 22 | ~13,200 | 6.60% |
+
+```bash
+# Run benchmarks yourself
+cd bench/competitors && npx tsx src/run-benchmarks.ts
+```
+
+## Built-in Profiling
 
 Every operation is timed. Get results with `rayo_profile`:
 
@@ -115,8 +143,6 @@ RAYO PROFILE (1.23s total)
   cdp.command: 200ms (16.3%) | 45 ops | avg 4.4ms| p95 8ms
 SLOWEST: goto("wikipedia.org") 200ms
 ```
-
-Export to Chrome DevTools trace format, JSON, or markdown.
 
 ## AI Speed Rules
 
@@ -130,93 +156,21 @@ RAYO SPEED RULES:
 - BATCH 3+ sequential actions into rayo_batch
 ```
 
-Runtime feedback in every response:
-```json
-{
-  "_rayo": {
-    "durationMs": 45,
-    "violations": [{ "rule": "selectors/prefer-css", "suggestion": "Use div.foo instead of //div[@class='foo']" }]
-  }
-}
-```
-
-## Benchmarks (Real Numbers, Real Websites)
-
-Benchmarked on darwin arm64, 5 iterations after 2 warmup, median values.
-
-### Where rayo dominates: Token Efficiency
-
-| Method | Adapter | Latency | Tokens | vs Screenshot |
-|--------|---------|---------|--------|---------------|
-| **page_map** | **rayo** | **<1ms** | **~94** | **58x fewer tokens** |
-| text | all | <1ms | ~33 | — |
-| screenshot | playwright | 17ms | ~5,500 | baseline |
-| screenshot | puppeteer | 17ms | ~5,500 | baseline |
-
-**Page maps are the killer feature.** An AI agent reads ~94 tokens instead of ~5,500 for a screenshot. That's **58x more token-efficient** — and it returns structured data with element IDs for direct interaction.
-
-### Tool Description Token Cost (Context Window Impact)
-
-| MCP Server | Tools | Est. Tokens | % of 200k Context |
-|-----------|-------|-------------|-------------------|
-| **rayo-browser** | **5** | **~1,500** | **0.75%** |
-| Puppeteer MCP | 9 | ~4,500 | 2.25% |
-| Playwright MCP | 22 | ~13,200 | 6.60% |
-
-rayo uses **8.8x fewer tokens** for tool descriptions than Playwright MCP.
-
-### Navigation Speed (Honest Numbers)
-
-| Site | rayo | Playwright | Puppeteer |
-|------|------|-----------|-----------|
-| example.com | 21ms | 3ms | 15ms |
-| wikipedia | 110ms | 68ms | 80ms |
-| HN | 158ms | 76ms | 93ms |
-
-Playwright is faster at raw navigation because it runs in-process (no MCP stdio overhead). rayo pays for the MCP transport layer. **We're optimizing for total AI workflow cost (tokens + latency + round-trips), not raw navigation speed.**
-
-### DOM Extraction (HN)
-
-| Adapter | Latency | Items | Method |
-|---------|---------|-------|--------|
-| rayo | 1ms | 229 elements | page_map (structured) |
-| playwright | 1ms | 30 stories | $$eval (custom JS) |
-| puppeteer | 8ms | 30 stories | $$eval (custom JS) |
-
-rayo's page_map returns **all 229 interactive elements** in one call — no custom JS needed. Playwright/Puppeteer require agent-written `$$eval` queries.
-
-### The Real Advantage: AI Workflow Efficiency
-
-For an AI agent doing browser automation, what matters is:
-1. **Tokens consumed** (page maps: 58x fewer than screenshots)
-2. **Context window overhead** (tool descriptions: 8.8x fewer than Playwright)
-3. **Round-trips to understand a page** (1 page_map call vs screenshot + parse)
-4. **Actions per MCP call** (batch: N actions in 1 call vs N calls)
-
-```bash
-# Run benchmarks yourself
-cd bench/competitors && npx tsx src/run-benchmarks.ts
-
-# Run Rust criterion benchmarks
-cargo bench
-```
-
 ## Development
 
 ```bash
-# Build all crates
-cargo build --workspace
-
-# Run tests
-cargo test --workspace
-
-# Run benchmarks
-cargo bench
-
-# Run MCP server
-cargo run --bin rayo-mcp
+cargo build --workspace          # Build all
+cargo test --workspace           # Run all tests (needs Chrome)
+cargo bench                      # Run criterion benchmarks
+cargo run --bin rayo-mcp         # Start MCP server
+cargo clippy --workspace         # Lint
+cargo fmt --check --all          # Check formatting
 ```
 
 ## License
 
 MIT
+
+---
+
+[![Star History Chart](https://api.star-history.com/svg?repos=manurueda/rayo-browser&type=Date)](https://www.star-history.com/#manurueda/rayo-browser&Date)
