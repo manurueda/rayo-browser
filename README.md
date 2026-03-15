@@ -4,8 +4,30 @@
 
 ## Install
 
+### Claude Code
+
+Paste this into Claude Code:
+
+> Install rayo-mcp from crates.io and add it as an MCP server called rayo
+
+### Cursor / Windsurf
+
+Add to your MCP config (`.cursor/mcp.json`, `.windsurf/mcp.json`, etc.):
+
+```json
+{
+  "mcpServers": {
+    "rayo": {
+      "command": "rayo-mcp"
+    }
+  }
+}
 ```
-cargo install rayo-mcp && claude mcp add rayo -- rayo-mcp
+
+### Manual
+
+```
+cargo install rayo-mcp
 ```
 
 ## Why rayo?
