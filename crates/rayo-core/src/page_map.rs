@@ -70,7 +70,10 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
     const selectors = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]';
     const elements = document.querySelectorAll(selectors);
 
+    const MAX_ELEMENTS = 50;
+    let count = 0;
     elements.forEach((el, idx) => {
+        if (count >= MAX_ELEMENTS) return;
         if (el.offsetParent === null && el.type !== 'hidden') return; // Skip invisible
 
         const item = { id: idx, tag: el.tagName.toLowerCase(), selector: '' };
@@ -120,8 +123,8 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
         const role = el.getAttribute('role');
         if (role) item.role = role;
 
-        // Href (links)
-        if (el.href) item.href = el.href;
+        // Href (links) — truncate long URLs
+        if (el.href) item.href = el.href.length > 120 ? el.href.slice(0, 120) : el.href;
 
         // Build a reliable selector
         if (el.id) {
@@ -139,6 +142,7 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
         }
 
         interactive.push(item);
+        count++;
     });
 
     // Headings

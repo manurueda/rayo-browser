@@ -133,7 +133,7 @@ pub async fn handle_observe(
             let b64 = page.screenshot(full_page).await.map_err(internal_err)?;
             Ok(CallToolResult::success(vec![Content::image(
                 b64,
-                "image/png",
+                RayoPage::screenshot_mime(),
             )]))
         }
         _ => Err(McpError::invalid_params(
@@ -208,13 +208,7 @@ pub async fn handle_interact(
         }
     };
 
-    // Auto-return page_map so LLM doesn't need a separate observe call
-    let mut content = vec![Content::text(msg)];
-    if let Ok(map) = page.page_map().await {
-        let json = serde_json::to_string_pretty(&map).unwrap_or_default();
-        content.push(Content::text(format!("\n--- page_map ---\n{json}")));
-    }
-    Ok(CallToolResult::success(content))
+    Ok(CallToolResult::success(vec![Content::text(msg)]))
 }
 
 pub async fn handle_batch(

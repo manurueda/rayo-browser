@@ -189,18 +189,24 @@ impl RayoPage {
         Ok(result.into_value::<String>().unwrap_or_default())
     }
 
-    /// Take a screenshot, returns base64-encoded PNG.
+    /// Take a screenshot, returns base64-encoded JPEG.
     pub async fn screenshot(&self, _full_page: bool) -> Result<String, RayoError> {
         let _span = self
             .profiler
             .start_span("screenshot", SpanCategory::Screenshot);
         let params = CaptureScreenshotParams {
-            format: Some(CaptureScreenshotFormat::Png),
+            format: Some(CaptureScreenshotFormat::Jpeg),
+            quality: Some(80),
             ..Default::default()
         };
         let bytes = self.page.screenshot(params).await?;
         use base64::Engine;
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    }
+
+    /// Screenshot MIME type for MCP responses.
+    pub fn screenshot_mime() -> &'static str {
+        "image/jpeg"
     }
 
     /// Click an element by selector or page map ID.
