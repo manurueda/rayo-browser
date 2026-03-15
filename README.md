@@ -109,14 +109,16 @@ Real numbers from real websites. 10 iterations, 3 warmup, warm browsers.
 
 ### AI Agent Sessions (Real Claude Code Patterns)
 
-| Workflow | Metric | Playwright MCP | rayo-browser | Advantage |
-|----------|--------|---------------|-------------|----------|
-| Wikipedia Research | Latency | 219ms | 186ms | rayo 1.2x faster |
-| | Total tokens | 100,367 | 22,452 | **78% fewer** |
-| Form Fill + Submit | Latency | 392ms | 646ms | PW 1.6x faster |
-| | Total tokens | 23,311 | 2,990 | **87% fewer** |
-| HN Browse + Read | Latency | 945ms | 472ms | rayo 2.0x faster |
-| | Total tokens | 77,242 | 11,770 | **85% fewer** |
+```
+Wikipedia Research        rayo 22,452 tokens  ██░░░░░░░░░░░░░░░░░░  78% fewer
+                    Playwright 100,367 tokens  ████████████████████
+
+Form Fill + Submit        rayo 2,990 tokens   ███░░░░░░░░░░░░░░░░░  87% fewer
+                    Playwright 23,311 tokens   ████████████████████
+
+HN Browse + Read          rayo 11,770 tokens  ███░░░░░░░░░░░░░░░░░  85% fewer
+                    Playwright 77,242 tokens   ████████████████████
+```
 
 ### Page Understanding
 
@@ -128,11 +130,11 @@ Real numbers from real websites. 10 iterations, 3 warmup, warm browsers.
 
 ### Tool Description Token Cost
 
-| MCP Server | Tools | Tokens | % of 200k Context |
-|-----------|-------|--------|-------------------|
-| **rayo-browser** | **7** | **~1,500** | **0.75%** |
-| Puppeteer MCP | 9 | ~4,500 | 2.25% |
-| Playwright MCP | 22 | ~13,200 | 6.60% |
+```
+  rayo-browser   ~1,500 tokens  ██░░░░░░░░░░░░░░░░░░  0.75% of context
+  Puppeteer MCP  ~4,500 tokens  ███████░░░░░░░░░░░░░  2.25% of context
+  Playwright MCP ~13,200 tokens ████████████████████  6.60% of context
+```
 
 ```bash
 # Run benchmarks yourself
