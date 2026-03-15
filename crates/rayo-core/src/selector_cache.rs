@@ -31,7 +31,9 @@ pub struct SelectorCache {
 impl SelectorCache {
     pub fn new(capacity: usize) -> Self {
         Self {
-            cache: LruCache::new(NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1024).unwrap())),
+            cache: LruCache::new(
+                NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1024).unwrap()),
+            ),
             generation: 0,
             hits: 0,
             misses: 0,

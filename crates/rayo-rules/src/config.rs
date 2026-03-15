@@ -85,16 +85,28 @@ fn default_warn() -> Severity {
 }
 
 fn default_cdp_budget() -> BudgetEntry {
-    BudgetEntry { max_ms: 50, severity: Severity::Warn }
+    BudgetEntry {
+        max_ms: 50,
+        severity: Severity::Warn,
+    }
 }
 fn default_nav_budget() -> BudgetEntry {
-    BudgetEntry { max_ms: 5000, severity: Severity::Warn }
+    BudgetEntry {
+        max_ms: 5000,
+        severity: Severity::Warn,
+    }
 }
 fn default_screenshot_budget() -> BudgetEntry {
-    BudgetEntry { max_ms: 200, severity: Severity::Warn }
+    BudgetEntry {
+        max_ms: 200,
+        severity: Severity::Warn,
+    }
 }
 fn default_dom_read_budget() -> BudgetEntry {
-    BudgetEntry { max_ms: 300, severity: Severity::Warn }
+    BudgetEntry {
+        max_ms: 300,
+        severity: Severity::Warn,
+    }
 }
 
 /// AI agent-specific configuration.

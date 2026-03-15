@@ -5,38 +5,49 @@
 
 use std::sync::Arc;
 
-use chromiumoxide::browser::{Browser as CdpBrowser, BrowserConfig};
-use chromiumoxide::page::Page as CdpPage;
-use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, CaptureScreenshotParams};
-use chromiumoxide::cdp::browser_protocol::network::{
-    ClearBrowserCookiesParams, CookieParam, CookieSameSite,
-    DeleteCookiesParams, TimeSinceEpoch,
-};
 use crate::cookie::{CookieInfo, SameSite, SetCookie};
+use chromiumoxide::browser::{Browser as CdpBrowser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::network::{
+    ClearBrowserCookiesParams, CookieParam, CookieSameSite, DeleteCookiesParams, TimeSinceEpoch,
+};
+use chromiumoxide::cdp::browser_protocol::page::{
+    CaptureScreenshotFormat, CaptureScreenshotParams,
+};
+use chromiumoxide::page::Page as CdpPage;
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::batch::{BatchAction, BatchActionResult, BatchResult, ActionTarget};
+use crate::batch::{ActionTarget, BatchAction, BatchActionResult, BatchResult};
 use crate::error::RayoError;
-use crate::page_map::{PageMap, EXTRACT_PAGE_MAP_JS};
+use crate::page_map::{EXTRACT_PAGE_MAP_JS, PageMap};
 use crate::selector_cache::SelectorCache;
 use rayo_profiler::{Profiler, SpanCategory};
 
 /// Rayo browser wrapper with profiling and caching.
 pub struct RayoBrowser {
     browser: CdpBrowser,
-    _handler_handle: tokio::task::JoinHandle<()>,
+    handler_task: tokio::task::JoinHandle<()>,
     pub profiler: Profiler,
+    _user_data_dir: tempfile::TempDir,
 }
 
 impl RayoBrowser {
     /// Launch a new headless Chrome instance.
     pub async fn launch() -> Result<Self, RayoError> {
-        let config = BrowserConfig::builder()
-            .no_sandbox()
+        let user_data_dir = tempfile::tempdir()
+            .map_err(|e| RayoError::Cdp(format!("Failed to create temp dir: {e}")))?;
+
+        let mut builder = BrowserConfig::builder()
             .arg("--disable-gpu")
             .arg("--disable-dev-shm-usage")
-            .user_data_dir("/tmp/rayo-browser-profile")
+            .user_data_dir(user_data_dir.path());
+
+        // Only disable sandbox in CI/containers where it causes launch failures
+        if Self::should_no_sandbox() {
+            builder = builder.no_sandbox();
+        }
+
+        let config = builder
             .build()
             .map_err(|e| RayoError::Cdp(format!("Failed to build browser config: {e}")))?;
 
@@ -44,37 +55,49 @@ impl RayoBrowser {
             .await
             .map_err(|e| RayoError::Cdp(format!("Failed to launch browser: {e}")))?;
 
-        let handle = tokio::spawn(async move {
-            while handler.next().await.is_some() {}
-        });
+        let handle = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
         Ok(Self {
             browser,
-            _handler_handle: handle,
+            handler_task: handle,
             profiler: Profiler::new(),
+            _user_data_dir: user_data_dir,
         })
+    }
+
+    /// Detect if Chrome sandbox should be disabled.
+    /// Disabled in CI, Docker, or when explicitly requested.
+    fn should_no_sandbox() -> bool {
+        std::env::var("CI").is_ok()
+            || std::env::var("RAYO_NO_SANDBOX").is_ok()
+            || std::path::Path::new("/.dockerenv").exists()
+            || std::path::Path::new("/run/.containerenv").exists()
     }
 
     /// Connect to an already-running Chrome instance.
     pub async fn connect(url: &str) -> Result<Self, RayoError> {
+        let user_data_dir = tempfile::tempdir()
+            .map_err(|e| RayoError::Cdp(format!("Failed to create temp dir: {e}")))?;
+
         let (browser, mut handler) = CdpBrowser::connect(url)
             .await
             .map_err(|e| RayoError::Cdp(format!("Failed to connect to browser: {e}")))?;
 
-        let handle = tokio::spawn(async move {
-            while handler.next().await.is_some() {}
-        });
+        let handle = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
         Ok(Self {
             browser,
-            _handler_handle: handle,
+            handler_task: handle,
             profiler: Profiler::new(),
+            _user_data_dir: user_data_dir,
         })
     }
 
     /// Create a new page (tab).
     pub async fn new_page(&self) -> Result<RayoPage, RayoError> {
-        let _span = self.profiler.start_span("new_page", SpanCategory::Navigation);
+        let _span = self
+            .profiler
+            .start_span("new_page", SpanCategory::Navigation);
         let page = self.browser.new_page("about:blank").await?;
         Ok(RayoPage {
             page,
@@ -87,6 +110,12 @@ impl RayoBrowser {
     /// Get the profiler.
     pub fn profiler(&self) -> &Profiler {
         &self.profiler
+    }
+}
+
+impl Drop for RayoBrowser {
+    fn drop(&mut self) {
+        self.handler_task.abort();
     }
 }
 
@@ -137,16 +166,18 @@ impl RayoPage {
     pub async fn page_map(&self) -> Result<PageMap, RayoError> {
         let _span = self.profiler.start_span("page_map", SpanCategory::PageMap);
         let result = self.page.evaluate(EXTRACT_PAGE_MAP_JS).await?;
-        let map: PageMap = result.into_value().map_err(|e| {
-            RayoError::Cdp(format!("Failed to deserialize page map: {e:?}"))
-        })?;
+        let map: PageMap = result
+            .into_value()
+            .map_err(|e| RayoError::Cdp(format!("Failed to deserialize page map: {e:?}")))?;
         *self.page_map_cache.lock().await = Some(map.clone());
         Ok(map)
     }
 
     /// Get text content of the page or a specific element.
     pub async fn text_content(&self, selector: Option<&str>) -> Result<String, RayoError> {
-        let _span = self.profiler.start_span("text_content", SpanCategory::DomRead);
+        let _span = self
+            .profiler
+            .start_span("text_content", SpanCategory::DomRead);
         let js = match selector {
             Some(sel) => format!(
                 "document.querySelector({}).textContent",
@@ -160,9 +191,13 @@ impl RayoPage {
 
     /// Take a screenshot, returns base64-encoded PNG.
     pub async fn screenshot(&self, _full_page: bool) -> Result<String, RayoError> {
-        let _span = self.profiler.start_span("screenshot", SpanCategory::Screenshot);
-        let mut params = CaptureScreenshotParams::default();
-        params.format = Some(CaptureScreenshotFormat::Png);
+        let _span = self
+            .profiler
+            .start_span("screenshot", SpanCategory::Screenshot);
+        let params = CaptureScreenshotParams {
+            format: Some(CaptureScreenshotFormat::Png),
+            ..Default::default()
+        };
         let bytes = self.page.screenshot(params).await?;
         use base64::Engine;
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
@@ -250,10 +285,9 @@ impl RayoPage {
 
     /// Execute a batch of actions.
     pub async fn execute_batch(&self, actions: Vec<BatchAction>) -> Result<BatchResult, RayoError> {
-        let _span = self.profiler.start_span(
-            format!("batch({})", actions.len()),
-            SpanCategory::Batch,
-        );
+        let _span = self
+            .profiler
+            .start_span(format!("batch({})", actions.len()), SpanCategory::Batch);
         let start = std::time::Instant::now();
         let mut results = Vec::with_capacity(actions.len());
         let mut succeeded = 0usize;
@@ -274,16 +308,17 @@ impl RayoPage {
                     let (sel, id) = target_to_selector_id(target);
                     self.select_option(sel, id, value).await.map(|_| None)
                 }
-                BatchAction::Goto { url } => {
-                    self.goto(url).await.map(|_| None)
-                }
-                BatchAction::Screenshot { full_page } => {
-                    self.screenshot(*full_page).await.map(|b64| Some(serde_json::Value::String(b64)))
-                }
+                BatchAction::Goto { url } => self.goto(url).await.map(|_| None),
+                BatchAction::Screenshot { full_page } => self
+                    .screenshot(*full_page)
+                    .await
+                    .map(|b64| Some(serde_json::Value::String(b64))),
                 BatchAction::WaitFor { target, timeout_ms } => {
                     let (sel, id) = target_to_selector_id(target);
                     let selector = self.resolve_selector(sel, id).await?;
-                    self.wait_for_selector(&selector, *timeout_ms).await.map(|_| None)
+                    self.wait_for_selector(&selector, *timeout_ms)
+                        .await
+                        .map(|_| None)
                 }
                 BatchAction::Scroll { target, x, y } => {
                     if let Some(t) = target {
@@ -293,10 +328,18 @@ impl RayoPage {
                             "document.querySelector({}).scrollIntoView({{block:'center'}})",
                             serde_json::to_string(&selector).unwrap(),
                         );
-                        self.page.evaluate(js).await.map(|_| None).map_err(RayoError::from)
+                        self.page
+                            .evaluate(js)
+                            .await
+                            .map(|_| None)
+                            .map_err(RayoError::from)
                     } else {
                         let js = format!("window.scrollTo({x},{y})");
-                        self.page.evaluate(js).await.map(|_| None).map_err(RayoError::from)
+                        self.page
+                            .evaluate(js)
+                            .await
+                            .map(|_| None)
+                            .map_err(RayoError::from)
                     }
                 }
             };
@@ -337,7 +380,11 @@ impl RayoPage {
     }
 
     /// Wait for a selector to appear.
-    pub async fn wait_for_selector(&self, selector: &str, timeout_ms: u64) -> Result<(), RayoError> {
+    pub async fn wait_for_selector(
+        &self,
+        selector: &str,
+        timeout_ms: u64,
+    ) -> Result<(), RayoError> {
         let _span = self.profiler.start_span(
             format!("wait({})", truncate(selector, 40)),
             SpanCategory::Wait,
@@ -367,7 +414,9 @@ impl RayoPage {
 
     /// Evaluate JavaScript on the page.
     pub async fn evaluate(&self, js: &str) -> Result<serde_json::Value, RayoError> {
-        let _span = self.profiler.start_span("evaluate", SpanCategory::CdpCommand);
+        let _span = self
+            .profiler
+            .start_span("evaluate", SpanCategory::CdpCommand);
         let result = self.page.evaluate(js).await?;
         Ok(result.into_value().unwrap_or(serde_json::Value::Null))
     }
@@ -388,30 +437,34 @@ impl RayoPage {
 
     /// Get all cookies for the current page.
     pub async fn get_cookies(&self) -> Result<Vec<CookieInfo>, RayoError> {
-        let _span = self.profiler.start_span("get_cookies", SpanCategory::CdpCommand);
+        let _span = self
+            .profiler
+            .start_span("get_cookies", SpanCategory::CdpCommand);
         let cookies = self
             .page
             .get_cookies()
             .await
             .map_err(|e| RayoError::CookieError(format!("Failed to get cookies: {e}")))?;
-        Ok(cookies.into_iter().map(|c| CookieInfo {
-            name: c.name,
-            value: c.value,
-            domain: c.domain,
-            path: c.path,
-            secure: c.secure,
-            http_only: c.http_only,
-            same_site: c.same_site.map(|s| format!("{s:?}")),
-            expires: c.expires,
-        }).collect())
+        Ok(cookies
+            .into_iter()
+            .map(|c| CookieInfo {
+                name: c.name,
+                value: c.value,
+                domain: c.domain,
+                path: c.path,
+                secure: c.secure,
+                http_only: c.http_only,
+                same_site: c.same_site.map(|s| format!("{s:?}")),
+                expires: c.expires,
+            })
+            .collect())
     }
 
     /// Delete a specific cookie by name, optionally scoped to a domain.
     pub async fn delete_cookie(&self, name: &str, domain: Option<&str>) -> Result<(), RayoError> {
-        let _span = self.profiler.start_span(
-            format!("delete_cookie({})", name),
-            SpanCategory::CdpCommand,
-        );
+        let _span = self
+            .profiler
+            .start_span(format!("delete_cookie({})", name), SpanCategory::CdpCommand);
         let mut params = DeleteCookiesParams::new(name);
         if let Some(d) = domain {
             params.domain = Some(d.to_string());
@@ -425,7 +478,9 @@ impl RayoPage {
 
     /// Clear all cookies.
     pub async fn clear_cookies(&self) -> Result<(), RayoError> {
-        let _span = self.profiler.start_span("clear_cookies", SpanCategory::CdpCommand);
+        let _span = self
+            .profiler
+            .start_span("clear_cookies", SpanCategory::CdpCommand);
         self.page
             .execute(ClearBrowserCookiesParams {})
             .await
@@ -445,10 +500,10 @@ impl RayoPage {
         if let Some(element_id) = id {
             // Look up from cached page map
             let cache = self.page_map_cache.lock().await;
-            if let Some(map) = cache.as_ref() {
-                if let Some(el) = map.interactive.iter().find(|e| e.id == element_id) {
-                    return Ok(el.selector.clone());
-                }
+            if let Some(map) = cache.as_ref()
+                && let Some(el) = map.interactive.iter().find(|e| e.id == element_id)
+            {
+                return Ok(el.selector.clone());
             }
             drop(cache);
             // Refresh page map and retry
@@ -486,11 +541,15 @@ fn action_name(action: &BatchAction) -> &'static str {
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() > max {
-        &s[..max]
-    } else {
-        s
+    if s.len() <= max {
+        return s;
     }
+    // Find the largest char boundary <= max to avoid panicking on multi-byte UTF-8
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 /// Convert rayo-owned SetCookie to chromiumoxide CookieParam.

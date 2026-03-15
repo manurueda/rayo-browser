@@ -35,10 +35,7 @@ pub fn default_rules() -> HashMap<String, RuleConfig> {
             severity: Severity::Warn,
             options: {
                 let mut opts = HashMap::new();
-                opts.insert(
-                    "maxPerMinute".into(),
-                    serde_json::Value::Number(10.into()),
-                );
+                opts.insert("maxPerMinute".into(), serde_json::Value::Number(10.into()));
                 opts
             },
         },

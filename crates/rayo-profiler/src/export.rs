@@ -1,7 +1,7 @@
 //! Export profiling data to various formats.
 
-use crate::stats::CategoryStats;
 use crate::ProfileSpan;
+use crate::stats::CategoryStats;
 use serde::Serialize;
 
 /// Export spans to JSON string.
@@ -74,10 +74,7 @@ pub fn to_markdown(stats: &[CategoryStats], spans: &[ProfileSpan]) -> String {
     }
 
     // Top 5 slowest operations
-    let mut sorted: Vec<_> = spans
-        .iter()
-        .filter(|s| s.duration_us.is_some())
-        .collect();
+    let mut sorted: Vec<_> = spans.iter().filter(|s| s.duration_us.is_some()).collect();
     sorted.sort_by(|a, b| b.duration_us.cmp(&a.duration_us));
 
     if !sorted.is_empty() {
@@ -121,10 +118,7 @@ pub fn to_ai_summary(stats: &[CategoryStats], spans: &[ProfileSpan]) -> String {
     }
 
     // Top 3 slowest
-    let mut sorted: Vec<_> = spans
-        .iter()
-        .filter(|s| s.duration_us.is_some())
-        .collect();
+    let mut sorted: Vec<_> = spans.iter().filter(|s| s.duration_us.is_some()).collect();
     sorted.sort_by(|a, b| b.duration_us.cmp(&a.duration_us));
 
     if !sorted.is_empty() {

@@ -1,6 +1,6 @@
 //! Benchmark: page map generation and serialization.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rayo_core::page_map::{InteractiveElement, PageMap};
 
 fn make_page_map(n_elements: usize) -> PageMap {

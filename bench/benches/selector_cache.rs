@@ -1,6 +1,6 @@
 //! Benchmark: selector cache performance.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rayo_core::selector_cache::SelectorCache;
 
 fn bench_cache_hit(c: &mut Criterion) {

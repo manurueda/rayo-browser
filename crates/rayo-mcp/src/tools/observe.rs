@@ -32,7 +32,16 @@ pub enum ObserveMode {
 #[serde(untagged)]
 pub enum ObserveOutput {
     PageMap(rayo_core::page_map::PageMap),
-    Text { text: String, duration_ms: f64 },
-    Screenshot { base64: String, duration_ms: f64 },
-    Accessibility { tree: serde_json::Value, duration_ms: f64 },
+    Text {
+        text: String,
+        duration_ms: f64,
+    },
+    Screenshot {
+        base64: String,
+        duration_ms: f64,
+    },
+    Accessibility {
+        tree: serde_json::Value,
+        duration_ms: f64,
+    },
 }

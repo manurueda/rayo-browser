@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><title>Rayo Dynamic Page</title></head>
+<body>
+  <h1>Dynamic Content</h1>
+  <div id="container">
+    <p>Elements will appear below after delays.</p>
+  </div>
+  <script>
+    // Insert element after 300ms
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.id = 'delayed-element';
+      el.className = 'dynamic';
+      el.textContent = 'I appeared after 300ms';
+      document.getElementById('container').appendChild(el);
+    }, 300);
+
+    // Insert another after 800ms
+    setTimeout(() => {
+      const el = document.createElement('button');
+      el.id = 'late-button';
+      el.textContent = 'Late button';
+      document.getElementById('container').appendChild(el);
+    }, 800);
+  </script>
+</body>
+</html>

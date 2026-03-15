@@ -110,14 +110,14 @@ Real numbers from real websites. 10 iterations, 3 warmup, warm browsers.
 ### AI Agent Sessions (Real Claude Code Patterns)
 
 ```
-Wikipedia Research        rayo 22,452 tokens  ██░░░░░░░░░░░░░░░░░░  78% fewer
-                    Playwright 100,367 tokens  ████████████████████
+Wikipedia Research        rayo 43,290 tokens  █████████░░░░░░░░░░░  57% fewer
+                    Playwright 100,369 tokens  ████████████████████
 
-Form Fill + Submit        rayo 2,990 tokens   ███░░░░░░░░░░░░░░░░░  87% fewer
+Form Fill + Submit        rayo 3,753 tokens   ███░░░░░░░░░░░░░░░░░  84% fewer
                     Playwright 23,311 tokens   ████████████████████
 
-HN Browse + Read          rayo 11,770 tokens  ███░░░░░░░░░░░░░░░░░  85% fewer
-                    Playwright 77,242 tokens   ████████████████████
+HN Browse + Read          rayo 21,142 tokens  █████░░░░░░░░░░░░░░░  73% fewer
+                    Playwright 77,523 tokens   ████████████████████
 ```
 
 ### Page Understanding
@@ -127,6 +127,7 @@ HN Browse + Read          rayo 11,770 tokens  ███░░░░░░░░�
 | **page_map** | **rayo** | **<1ms** | **~120** |
 | text | rayo | <1ms | ~47 |
 | screenshot | playwright | 17ms | ~5,526 |
+| screenshot | puppeteer | 17ms | ~5,487 |
 
 ### Tool Description Token Cost
 

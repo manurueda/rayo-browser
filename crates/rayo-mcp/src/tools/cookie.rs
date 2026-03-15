@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use rmcp::model::{CallToolResult, Content};
-use rmcp::Error as McpError;
 use rayo_core::{RayoPage, SameSite, SetCookie};
+use rmcp::Error as McpError;
+use rmcp::model::{CallToolResult, Content};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -24,11 +24,13 @@ pub async fn handle_cookie(
 
     match action {
         "set" => {
-            let cookies_value = params
-                .get("cookies")
-                .ok_or_else(|| McpError::invalid_params("cookies array is required for set", None))?;
+            let cookies_value = params.get("cookies").ok_or_else(|| {
+                McpError::invalid_params("cookies array is required for set", None)
+            })?;
             let cookie_entries: Vec<Value> = serde_json::from_value(cookies_value.clone())
-                .map_err(|e| McpError::invalid_params(format!("Invalid cookies array: {e}"), None))?;
+                .map_err(|e| {
+                    McpError::invalid_params(format!("Invalid cookies array: {e}"), None)
+                })?;
 
             let mut cookies = Vec::with_capacity(cookie_entries.len());
             for entry in &cookie_entries {
@@ -36,25 +38,29 @@ pub async fn handle_cookie(
                     .get("name")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| McpError::invalid_params("Each cookie requires a name", None))?;
-                let value = entry
-                    .get("value")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| McpError::invalid_params("Each cookie requires a value", None))?;
+                let value = entry.get("value").and_then(|v| v.as_str()).ok_or_else(|| {
+                    McpError::invalid_params("Each cookie requires a value", None)
+                })?;
 
                 cookies.push(SetCookie {
                     name: name.to_string(),
                     value: value.to_string(),
-                    domain: entry.get("domain").and_then(|v| v.as_str()).map(String::from),
+                    domain: entry
+                        .get("domain")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     path: entry.get("path").and_then(|v| v.as_str()).map(String::from),
                     url: entry.get("url").and_then(|v| v.as_str()).map(String::from),
                     secure: entry.get("secure").and_then(|v| v.as_bool()),
                     http_only: entry.get("httpOnly").and_then(|v| v.as_bool()),
-                    same_site: entry.get("sameSite").and_then(|v| v.as_str()).and_then(|s| match s {
-                        "Strict" => Some(SameSite::Strict),
-                        "Lax" => Some(SameSite::Lax),
-                        "None" => Some(SameSite::None),
-                        _ => None,
-                    }),
+                    same_site: entry.get("sameSite").and_then(|v| v.as_str()).and_then(
+                        |s| match s {
+                            "Strict" => Some(SameSite::Strict),
+                            "Lax" => Some(SameSite::Lax),
+                            "None" => Some(SameSite::None),
+                            _ => None,
+                        },
+                    ),
                     expires: entry.get("expires").and_then(|v| v.as_f64()),
                 });
             }

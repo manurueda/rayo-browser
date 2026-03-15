@@ -51,9 +51,7 @@ impl RuleEngine {
                     rule: "selectors/prefer-css".into(),
                     severity,
                     message: "XPath selectors are 2-10x slower than CSS in CDP.".into(),
-                    suggestion: Some(format!(
-                        "Convert to CSS selector. XPath: {selector}"
-                    )),
+                    suggestion: Some(format!("Convert to CSS selector. XPath: {selector}")),
                 };
                 self.violations.push(v.clone());
                 return Some(v);
@@ -74,7 +72,9 @@ impl RuleEngine {
                 let v = Violation {
                     rule: "selectors/no-broad-selectors".into(),
                     severity,
-                    message: format!("Selector \"{selector}\" is too broad. Use a class, ID, or data attribute."),
+                    message: format!(
+                        "Selector \"{selector}\" is too broad. Use a class, ID, or data attribute."
+                    ),
                     suggestion: Some("Use a more specific selector like .classname or #id".into()),
                 };
                 self.violations.push(v.clone());
@@ -116,7 +116,9 @@ impl RuleEngine {
                     message: format!(
                         "Screenshot rate limit exceeded ({max_per_minute}/min). Use rayo_observe with page_map instead."
                     ),
-                    suggestion: Some("Use page_map for page understanding — 200x more token-efficient.".into()),
+                    suggestion: Some(
+                        "Use page_map for page understanding — 200x more token-efficient.".into(),
+                    ),
                 };
                 self.violations.push(v.clone());
                 return Some(v);

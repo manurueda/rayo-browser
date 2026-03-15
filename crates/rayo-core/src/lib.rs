@@ -23,10 +23,13 @@ pub mod batch;
 pub mod browser;
 pub mod cookie;
 pub mod error;
+pub mod network;
 pub mod page_map;
 pub mod selector_cache;
+pub mod tab_manager;
 pub mod wait;
 
 pub use browser::{RayoBrowser, RayoPage};
 pub use cookie::{CookieInfo, SameSite, SetCookie};
 pub use error::RayoError;
+pub use tab_manager::{TabId, TabInfo, TabManager};

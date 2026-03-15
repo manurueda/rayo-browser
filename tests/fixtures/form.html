@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><title>Rayo Test Form</title></head>
+<body>
+  <h1>Test Form</h1>
+  <form id="test-form" onsubmit="event.preventDefault(); document.getElementById('result').textContent='submitted'">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" placeholder="Your name">
+
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" placeholder="your@email.com">
+
+    <label for="phone">Phone</label>
+    <input type="tel" id="phone" name="phone">
+
+    <label for="color">Favorite Color</label>
+    <select id="color" name="color">
+      <option value="">Select...</option>
+      <option value="red">Red</option>
+      <option value="blue">Blue</option>
+      <option value="green">Green</option>
+    </select>
+
+    <label for="bio">Bio</label>
+    <textarea id="bio" name="bio" placeholder="Tell us about yourself"></textarea>
+
+    <label><input type="checkbox" id="agree" name="agree" value="yes"> I agree</label>
+
+    <label><input type="radio" name="plan" value="free"> Free</label>
+    <label><input type="radio" name="plan" value="pro"> Pro</label>
+
+    <input type="text" id="readonly-input" readonly value="cannot edit">
+    <input type="text" id="disabled-input" disabled value="also cannot edit">
+
+    <button type="submit" id="submit-btn">Submit</button>
+  </form>
+  <div id="result"></div>
+  <a href="/index.html">Back to index</a>
+</body>
+</html>

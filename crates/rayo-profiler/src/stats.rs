@@ -45,7 +45,11 @@ pub fn compute_category_stats(spans: &[ProfileSpan]) -> Vec<CategoryStats> {
             durations.sort_unstable();
             let count = durations.len();
             let total_us: u64 = durations.iter().sum();
-            let avg_us = if count > 0 { total_us / count as u64 } else { 0 };
+            let avg_us = if count > 0 {
+                total_us / count as u64
+            } else {
+                0
+            };
             let min_us = durations.first().copied().unwrap_or(0);
             let max_us = durations.last().copied().unwrap_or(0);
             let median_us = percentile(&durations, 50.0);

@@ -61,11 +61,11 @@ impl Collector {
         // Search backwards from write position (most recent spans)
         for i in (0..self.spans.len()).rev() {
             let idx = (self.write_idx + i) % self.spans.len();
-            if let Some(span) = &mut self.spans[idx] {
-                if span.id == id {
-                    span.duration_us = Some(duration_us);
-                    return;
-                }
+            if let Some(span) = &mut self.spans[idx]
+                && span.id == id
+            {
+                span.duration_us = Some(duration_us);
+                return;
             }
         }
     }
@@ -105,12 +105,7 @@ mod tests {
 
         // Fill beyond capacity
         for i in 0..5 {
-            let id = collector.start_span(
-                format!("span_{i}"),
-                SpanCategory::User,
-                i * 1000,
-                None,
-            );
+            let id = collector.start_span(format!("span_{i}"), SpanCategory::User, i * 1000, None);
             collector.end_span(id, Duration::from_millis(1));
         }
 

@@ -3,7 +3,7 @@
 //! Placeholder — requires a running Chrome instance.
 //! Will be filled in when chromiumoxide integration is complete.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_cdp_placeholder(c: &mut Criterion) {
     c.bench_function("cdp_roundtrip_placeholder", |b| {

@@ -6,9 +6,9 @@
 
 | Site | rayo | Playwright | Puppeteer |
 |------|------|-----------|----------|
-| example.com | 21ms | 3ms | 15ms |
-| wikipedia | 101ms | 72ms | 85ms |
-| HN | 96ms | 75ms | 233ms |
+| example.com | 24ms | 3ms | 18ms |
+| wikipedia | 130ms | 78ms | 91ms |
+| HN | 97ms | 74ms | 92ms |
 
 ### Page Understanding (Speed + Token Cost)
 
@@ -20,15 +20,15 @@
 | text | rayo | 0ms | ~47 |
 | screenshot | playwright | 17ms | ~5526 |
 | screenshot | puppeteer | 17ms | ~5487 |
-| screenshot | rayo | 525ms | ~5487 |
+| screenshot | rayo | 528ms | ~5487 |
 
 ### DOM Extraction (HN)
 
 | Adapter | Latency | Items | ~Tokens |
 |---------|---------|-------|--------|
-| playwright | 1ms | 30 | ~961 |
-| puppeteer | 8ms | 30 | ~961 |
-| rayo | 2ms | 229 | ~9441 |
+| playwright | 2ms | 30 | ~935 |
+| puppeteer | 8ms | 30 | ~935 |
+| rayo | 2ms | 229 | ~9417 |
 
 ### 🤖 AI Agent Session Simulations (Real Claude Code Patterns)
 
@@ -38,25 +38,25 @@ These simulate actual Claude Code workflows — the TOTAL cost of tokens + laten
 
 | Metric | Playwright MCP | rayo-browser | Advantage |
 |--------|---------------|-------------|----------|
-| Latency | 219ms | 186ms | rayo 1.2x faster |
+| Latency | 406ms | 208ms | rayo 2.0x faster |
 | Tool calls | 4 | 3 | **25% fewer** |
-| Total tokens | 100,367 | 22,452 | **78% fewer** |
+| Total tokens | 100,369 | 43,290 | **57% fewer** |
 
 #### Form Fill
 
 | Metric | Playwright MCP | rayo-browser | Advantage |
 |--------|---------------|-------------|----------|
-| Latency | 392ms | 646ms | PW 1.6x faster |
+| Latency | 427ms | 646ms | PW 1.5x faster |
 | Tool calls | 8 | 5 | **38% fewer** |
-| Total tokens | 23,311 | 2,990 | **87% fewer** |
+| Total tokens | 23,311 | 3,753 | **84% fewer** |
 
 #### Hn Browse
 
 | Metric | Playwright MCP | rayo-browser | Advantage |
 |--------|---------------|-------------|----------|
-| Latency | 945ms | 472ms | rayo 2.0x faster |
+| Latency | 1439ms | 1105ms | rayo 1.3x faster |
 | Tool calls | 5 | 4 | **20% fewer** |
-| Total tokens | 77,242 | 11,770 | **85% fewer** |
+| Total tokens | 77,523 | 21,142 | **73% fewer** |
 
 ### Tool Description Token Cost
 
