@@ -165,10 +165,10 @@ pub async fn handle_interact(
     let selector = params.get("selector").and_then(|v| v.as_str());
     let value = params.get("value").and_then(|v| v.as_str());
 
-    match action {
+    let msg = match action {
         "click" => {
             page.click(selector, id).await.map_err(internal_err)?;
-            Ok(CallToolResult::success(vec![Content::text("Clicked")]))
+            "Clicked".to_string()
         }
         "type" => {
             let text = value
@@ -176,9 +176,7 @@ pub async fn handle_interact(
             page.type_text(selector, id, text, true)
                 .await
                 .map_err(internal_err)?;
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Typed: {text}"
-            ))]))
+            format!("Typed: {text}")
         }
         "select" => {
             let val = value
@@ -186,9 +184,7 @@ pub async fn handle_interact(
             page.select_option(selector, id, val)
                 .await
                 .map_err(internal_err)?;
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Selected: {val}"
-            ))]))
+            format!("Selected: {val}")
         }
         "scroll" => {
             if let Some(sel) = selector {
@@ -202,13 +198,23 @@ pub async fn handle_interact(
                     .await
                     .map_err(internal_err)?;
             }
-            Ok(CallToolResult::success(vec![Content::text("Scrolled")]))
+            "Scrolled".to_string()
         }
-        _ => Err(McpError::invalid_params(
-            format!("Unknown interact action: {action}"),
-            None,
-        )),
+        _ => {
+            return Err(McpError::invalid_params(
+                format!("Unknown interact action: {action}"),
+                None,
+            ));
+        }
+    };
+
+    // Auto-return page_map so LLM doesn't need a separate observe call
+    let mut content = vec![Content::text(msg)];
+    if let Ok(map) = page.page_map().await {
+        let json = serde_json::to_string_pretty(&map).unwrap_or_default();
+        content.push(Content::text(format!("\n--- page_map ---\n{json}")));
     }
+    Ok(CallToolResult::success(content))
 }
 
 pub async fn handle_batch(
@@ -225,7 +231,13 @@ pub async fn handle_batch(
     let result = page.execute_batch(actions).await.map_err(internal_err)?;
 
     let json = serde_json::to_string_pretty(&result).unwrap_or_default();
-    Ok(CallToolResult::success(vec![Content::text(json)]))
+    // Auto-return page_map so LLM doesn't need a separate observe call
+    let mut content = vec![Content::text(json)];
+    if let Ok(map) = page.page_map().await {
+        let map_json = serde_json::to_string_pretty(&map).unwrap_or_default();
+        content.push(Content::text(format!("\n--- page_map ---\n{map_json}")));
+    }
+    Ok(CallToolResult::success(content))
 }
 
 pub async fn handle_cookie(
