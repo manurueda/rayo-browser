@@ -4,13 +4,14 @@
 
 ## Install
 
-```bash
-# Install
-cargo install rayo-mcp
+Install the binary, then add it to Claude Code:
 
-# Add to Claude Code
+```bash
+cargo install rayo-mcp
 claude mcp add rayo -- rayo-mcp
 ```
+
+That's it. Next time Claude Code starts, it will have browser automation.
 
 ## Why rayo?
 
