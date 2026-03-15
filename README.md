@@ -1,6 +1,6 @@
 # rayo-browser
 
-**The fastest MCP browser automation tool.** Rust-powered, benchmark-proven, AI-native.
+**The most token-efficient MCP browser automation tool.** Rust-powered, benchmark-proven, AI-native.
 
 [![Star History Chart](https://api.star-history.com/svg?repos=manurueda/rayo-browser&type=Date)](https://www.star-history.com/#manurueda/rayo-browser&Date)
 
@@ -140,19 +140,65 @@ Runtime feedback in every response:
 }
 ```
 
-## Benchmarks
+## Benchmarks (Real Numbers, Real Websites)
 
-<!-- TODO: Replace with real numbers once benchmark suite runs -->
-Benchmark suite runs against real public websites (Wikipedia, GitHub, HN, httpbin) with statistical rigor (Welch's t-test, p < 0.05).
+Benchmarked on darwin arm64, 5 iterations after 2 warmup, median values.
 
-Competitors benchmarked: Playwright, Puppeteer, raw CDP, Stagehand v3, browser-use.
+### Where rayo dominates: Token Efficiency
+
+| Method | Adapter | Latency | Tokens | vs Screenshot |
+|--------|---------|---------|--------|---------------|
+| **page_map** | **rayo** | **<1ms** | **~94** | **58x fewer tokens** |
+| text | all | <1ms | ~33 | — |
+| screenshot | playwright | 17ms | ~5,500 | baseline |
+| screenshot | puppeteer | 17ms | ~5,500 | baseline |
+
+**Page maps are the killer feature.** An AI agent reads ~94 tokens instead of ~5,500 for a screenshot. That's **58x more token-efficient** — and it returns structured data with element IDs for direct interaction.
+
+### Tool Description Token Cost (Context Window Impact)
+
+| MCP Server | Tools | Est. Tokens | % of 200k Context |
+|-----------|-------|-------------|-------------------|
+| **rayo-browser** | **5** | **~1,500** | **0.75%** |
+| Puppeteer MCP | 9 | ~4,500 | 2.25% |
+| Playwright MCP | 22 | ~13,200 | 6.60% |
+
+rayo uses **8.8x fewer tokens** for tool descriptions than Playwright MCP.
+
+### Navigation Speed (Honest Numbers)
+
+| Site | rayo | Playwright | Puppeteer |
+|------|------|-----------|-----------|
+| example.com | 21ms | 3ms | 15ms |
+| wikipedia | 110ms | 68ms | 80ms |
+| HN | 158ms | 76ms | 93ms |
+
+Playwright is faster at raw navigation because it runs in-process (no MCP stdio overhead). rayo pays for the MCP transport layer. **We're optimizing for total AI workflow cost (tokens + latency + round-trips), not raw navigation speed.**
+
+### DOM Extraction (HN)
+
+| Adapter | Latency | Items | Method |
+|---------|---------|-------|--------|
+| rayo | 1ms | 229 elements | page_map (structured) |
+| playwright | 1ms | 30 stories | $$eval (custom JS) |
+| puppeteer | 8ms | 30 stories | $$eval (custom JS) |
+
+rayo's page_map returns **all 229 interactive elements** in one call — no custom JS needed. Playwright/Puppeteer require agent-written `$$eval` queries.
+
+### The Real Advantage: AI Workflow Efficiency
+
+For an AI agent doing browser automation, what matters is:
+1. **Tokens consumed** (page maps: 58x fewer than screenshots)
+2. **Context window overhead** (tool descriptions: 8.8x fewer than Playwright)
+3. **Round-trips to understand a page** (1 page_map call vs screenshot + parse)
+4. **Actions per MCP call** (batch: N actions in 1 call vs N calls)
 
 ```bash
-# Run benchmarks
-cargo bench
+# Run benchmarks yourself
+cd bench/competitors && npx tsx src/run-benchmarks.ts
 
-# Run competitor comparison
-cd bench/competitors && npm run bench
+# Run Rust criterion benchmarks
+cargo bench
 ```
 
 ## Development
