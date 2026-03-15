@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "rules": {
+    "selectors/prefer-css": "error",
+    "selectors/no-broad-selectors": "warn",
+    "waits/no-fixed-timeout": "error",
+    "waits/prefer-network-idle": "warn",
+    "screenshots/rate-limit": { "severity": "warn", "options": { "maxPerMinute": 10 } },
+    "screenshots/prefer-page-map": "warn",
+    "batching/combine-sequential": "warn",
+    "contexts/prefer-reuse": "warn"
+  },
+  "budgets": {
+    "cdp_command": { "max_ms": 50, "severity": "warn" },
+    "navigation": { "max_ms": 5000, "severity": "warn" },
+    "screenshot": { "max_ms": 200, "severity": "warn" },
+    "dom_read": { "max_ms": 300, "severity": "warn" }
+  },
+  "agent": {
+    "screenshot_rate_limit": 10,
+    "dom_read_cooldown_ms": 2000,
+    "guidance_format": "concise"
+  }
+}

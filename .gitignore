@@ -1,0 +1,7 @@
+/target
+bench/results/*.json
+!bench/results/.gitkeep
+*.swp
+*.swo
+.DS_Store
+node_modules/

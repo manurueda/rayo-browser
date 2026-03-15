@@ -1,0 +1,12 @@
+[package]
+name = "rayo-rules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AI agent speed rules engine for rayo-browser"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+rayo-profiler = { path = "../rayo-profiler" }

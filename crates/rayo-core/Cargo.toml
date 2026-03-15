@@ -1,0 +1,18 @@
+[package]
+name = "rayo-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core AI-native browser automation layer for rayo-browser"
+
+[dependencies]
+chromiumoxide = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+lru = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+rayo-profiler = { path = "../rayo-profiler" }

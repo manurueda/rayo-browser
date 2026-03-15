@@ -1,0 +1,30 @@
+[package]
+name = "rayo-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Benchmark suite for rayo-browser"
+
+[dependencies]
+rayo-core = { path = "../crates/rayo-core" }
+rayo-profiler = { path = "../crates/rayo-profiler" }
+chromiumoxide = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "cdp_latency"
+harness = false
+
+[[bench]]
+name = "selector_cache"
+harness = false
+
+[[bench]]
+name = "page_map"
+harness = false
