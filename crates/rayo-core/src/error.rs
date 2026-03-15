@@ -17,6 +17,9 @@ pub enum RayoError {
     #[error("CDP error: {0}")]
     Cdp(String),
 
+    #[error("Cookie error: {0}")]
+    CookieError(String),
+
     #[error("Page not available")]
     PageNotAvailable,
 

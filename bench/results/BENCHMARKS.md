@@ -1,51 +1,70 @@
 ## Benchmark Results (2026-03-15)
 
-**System:** darwin arm64
-**Iterations:** 5 (after 2 warmup)
+**System:** darwin arm64 | **Iterations:** 10 after 3 warmup | **Warm browsers** (no cold-start)
 
-### Navigation Speed
+### Navigation Speed (warm browser)
 
-| Site | rayo | Playwright | Puppeteer | rayo vs PW | rayo vs Pptr |
-|------|------|-----------|-----------|------------|-------------|
-| example.com | 21ms | 3ms | 15ms | **0.12x** | **0.72x** |
-| wikipedia | 110ms | 68ms | 80ms | **0.62x** | **0.73x** |
-| HN | 158ms | 76ms | 93ms | **0.48x** | **0.59x** |
+| Site | rayo | Playwright | Puppeteer |
+|------|------|-----------|----------|
+| example.com | 22ms | 3ms | 16ms |
+| wikipedia | 101ms | 74ms | 85ms |
+| HN | 94ms | 81ms | 87ms |
 
 ### Page Understanding (Speed + Token Cost)
 
-| Method | Adapter | Latency | Tokens | Token Efficiency |
-|--------|---------|---------|--------|------------------|
-| **page_map** | rayo | 0ms | ~94 | **Best** |
-| text | rayo | 0ms | ~33 | |
-| screenshot | rayo | 524ms | ~5487 | |
-| text | playwright | 1ms | ~33 | |
-| screenshot | playwright | 17ms | ~5526 | |
-| text | puppeteer | 1ms | ~33 | |
-| screenshot | puppeteer | 17ms | ~5487 | |
+| Method | Adapter | Latency | ~Tokens |
+|--------|---------|---------|--------|
+| text | playwright | 1ms | ~33 |
+| text | puppeteer | 1ms | ~33 |
+| page_map | rayo | 0ms | ~120 |
+| text | rayo | 0ms | ~47 |
+| screenshot | playwright | 17ms | ~5526 |
+| screenshot | puppeteer | 17ms | ~5487 |
+| screenshot | rayo | 525ms | ~5487 |
 
-### DOM Extraction (HN Stories)
+### DOM Extraction (HN)
 
-| Adapter | Latency | Items | Method |
+| Adapter | Latency | Items | ~Tokens |
 |---------|---------|-------|--------|
-| rayo | 1ms | 229 | page_map |
-| playwright | 1ms | 30 | $$eval |
-| puppeteer | 8ms | 30 | $$eval |
+| playwright | 1ms | 30 | ~923 |
+| puppeteer | 8ms | 30 | ~923 |
+| rayo | 2ms | 229 | ~9404 |
 
-### Multi-Step Workflow (navigate + extract + screenshot)
+### 🤖 AI Agent Session Simulations (Real Claude Code Patterns)
 
-| Adapter | Latency | MCP Calls | Method |
-|---------|---------|-----------|--------|
-| rayo | 552ms | 1 (batch) | rayo_batch |
-| playwright | 25ms | 3 (sequential) | 3x tool calls |
-| puppeteer | 47ms | 3 (sequential) | 3x tool calls |
+These simulate actual Claude Code workflows — the TOTAL cost of tokens + latency + tool calls.
 
-### Tool Description Token Cost (Context Window Impact)
+#### Wikipedia Research
 
-| MCP Server | Tools | Est. Tokens | % of 200k Context |
-|-----------|-------|-------------|-------------------|
-| **rayo-browser** | 5 | ~1500 | 0.75% |
-| Puppeteer MCP | 9 | ~4500 | 2.25% |
-| Playwright MCP | 22 | ~13200 | 6.60% |
+| Metric | Playwright MCP | rayo-browser | Advantage |
+|--------|---------------|-------------|----------|
+| Latency | 392ms | 184ms | rayo 2.1x faster |
+| Tool calls | 4 | 3 | **25% fewer** |
+| Total tokens | 100,367 | 22,452 | **78% fewer** |
+
+#### Form Fill
+
+| Metric | Playwright MCP | rayo-browser | Advantage |
+|--------|---------------|-------------|----------|
+| Latency | 244ms | 801ms | PW 3.3x faster |
+| Tool calls | 8 | 5 | **38% fewer** |
+| Total tokens | 23,311 | 2,993 | **87% fewer** |
+
+#### Hn Browse
+
+| Metric | Playwright MCP | rayo-browser | Advantage |
+|--------|---------------|-------------|----------|
+| Latency | 1209ms | 1976ms | PW 1.6x faster |
+| Tool calls | 5 | 4 | **20% fewer** |
+| Total tokens | 75,952 | 11,733 | **85% fewer** |
+
+### Tool Description Token Cost
+
+| MCP Server | Tools | Tokens | % of 200k Context |
+|-----------|-------|--------|-------------------|
+| playwright | 22 | ~13,200 | 6.60% |
+| puppeteer | 9 | ~4,500 | 2.25% |
+| rayo | 5 | ~1,500 | 0.75% |
 
 ---
-*Benchmarks run on real public websites. 5 iterations after 2 warmup. Median values reported.*
+*Warm browsers, 10 iterations after 3 warmup, median values.*

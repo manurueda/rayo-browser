@@ -4,6 +4,8 @@
 //! Each handler takes the page lock and params, returns CallToolResult.
 
 pub mod batch;
+pub mod cookie;
+pub use cookie::handle_cookie;
 pub mod interact;
 pub mod navigate;
 pub mod observe;

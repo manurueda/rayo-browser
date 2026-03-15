@@ -8,6 +8,11 @@ use std::sync::Arc;
 use chromiumoxide::browser::{Browser as CdpBrowser, BrowserConfig};
 use chromiumoxide::page::Page as CdpPage;
 use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, CaptureScreenshotParams};
+use chromiumoxide::cdp::browser_protocol::network::{
+    ClearBrowserCookiesParams, CookieParam, CookieSameSite,
+    DeleteCookiesParams, TimeSinceEpoch,
+};
+use crate::cookie::{CookieInfo, SameSite, SetCookie};
 use futures::StreamExt;
 use tokio::sync::Mutex;
 
@@ -31,6 +36,7 @@ impl RayoBrowser {
             .no_sandbox()
             .arg("--disable-gpu")
             .arg("--disable-dev-shm-usage")
+            .user_data_dir("/tmp/rayo-browser-profile")
             .build()
             .map_err(|e| RayoError::Cdp(format!("Failed to build browser config: {e}")))?;
 
@@ -366,6 +372,67 @@ impl RayoPage {
         Ok(result.into_value().unwrap_or(serde_json::Value::Null))
     }
 
+    /// Set cookies on the page.
+    pub async fn set_cookies(&self, cookies: Vec<SetCookie>) -> Result<(), RayoError> {
+        let _span = self.profiler.start_span(
+            format!("set_cookies({})", cookies.len()),
+            SpanCategory::CdpCommand,
+        );
+        let cdp_cookies: Vec<CookieParam> = cookies.into_iter().map(to_cdp_cookie).collect();
+        self.page
+            .set_cookies(cdp_cookies)
+            .await
+            .map_err(|e| RayoError::CookieError(format!("Failed to set cookies: {e}")))?;
+        Ok(())
+    }
+
+    /// Get all cookies for the current page.
+    pub async fn get_cookies(&self) -> Result<Vec<CookieInfo>, RayoError> {
+        let _span = self.profiler.start_span("get_cookies", SpanCategory::CdpCommand);
+        let cookies = self
+            .page
+            .get_cookies()
+            .await
+            .map_err(|e| RayoError::CookieError(format!("Failed to get cookies: {e}")))?;
+        Ok(cookies.into_iter().map(|c| CookieInfo {
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            http_only: c.http_only,
+            same_site: c.same_site.map(|s| format!("{s:?}")),
+            expires: c.expires,
+        }).collect())
+    }
+
+    /// Delete a specific cookie by name, optionally scoped to a domain.
+    pub async fn delete_cookie(&self, name: &str, domain: Option<&str>) -> Result<(), RayoError> {
+        let _span = self.profiler.start_span(
+            format!("delete_cookie({})", name),
+            SpanCategory::CdpCommand,
+        );
+        let mut params = DeleteCookiesParams::new(name);
+        if let Some(d) = domain {
+            params.domain = Some(d.to_string());
+        }
+        self.page
+            .execute(params)
+            .await
+            .map_err(|e| RayoError::CookieError(format!("Failed to delete cookie: {e}")))?;
+        Ok(())
+    }
+
+    /// Clear all cookies.
+    pub async fn clear_cookies(&self) -> Result<(), RayoError> {
+        let _span = self.profiler.start_span("clear_cookies", SpanCategory::CdpCommand);
+        self.page
+            .execute(ClearBrowserCookiesParams {})
+            .await
+            .map_err(|e| RayoError::CookieError(format!("Failed to clear cookies: {e}")))?;
+        Ok(())
+    }
+
     /// Resolve a selector from either a CSS selector or a page map element ID.
     async fn resolve_selector(
         &self,
@@ -424,4 +491,21 @@ fn truncate(s: &str, max: usize) -> &str {
     } else {
         s
     }
+}
+
+/// Convert rayo-owned SetCookie to chromiumoxide CookieParam.
+fn to_cdp_cookie(c: SetCookie) -> CookieParam {
+    let mut cp = CookieParam::new(c.name, c.value);
+    cp.domain = c.domain;
+    cp.path = c.path;
+    cp.url = c.url;
+    cp.secure = c.secure;
+    cp.http_only = c.http_only;
+    cp.same_site = c.same_site.map(|s| match s {
+        SameSite::Strict => CookieSameSite::Strict,
+        SameSite::Lax => CookieSameSite::Lax,
+        SameSite::None => CookieSameSite::None,
+    });
+    cp.expires = c.expires.map(TimeSinceEpoch::new);
+    cp
 }

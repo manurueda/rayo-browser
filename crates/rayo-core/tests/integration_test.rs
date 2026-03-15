@@ -83,6 +83,39 @@ async fn test_browser_operations() {
     assert!(timeout_result.is_err(), "Should timeout for nonexistent selector");
     eprintln!("  PASS: wait_for_selector_timeout");
 
+    // --- Test: cookie set and get ---
+    {
+        use rayo_core::SetCookie;
+
+        // Set a cookie
+        let cookie = SetCookie {
+            name: "test_session".into(),
+            value: "abc123".into(),
+            domain: None,
+            path: None,
+            url: None,
+            secure: None,
+            http_only: None,
+            same_site: None,
+            expires: None,
+        };
+        page.set_cookies(vec![cookie]).await.unwrap();
+
+        // Read it back
+        let cookies = page.get_cookies().await.unwrap();
+        let found = cookies.iter().find(|c| c.name == "test_session");
+        assert!(found.is_some(), "Should find test_session cookie");
+        assert_eq!(found.unwrap().value, "abc123");
+        eprintln!("  PASS: cookie_set_and_get");
+
+        // Clear and verify
+        page.clear_cookies().await.unwrap();
+        let cookies = page.get_cookies().await.unwrap();
+        let found = cookies.iter().find(|c| c.name == "test_session");
+        assert!(found.is_none(), "Cookie should be cleared");
+        eprintln!("  PASS: cookie_clear");
+    }
+
     // --- Test: profiler records spans ---
     let spans = browser.profiler().spans();
     assert!(spans.len() >= 3, "Expected >= 3 spans, got: {}", spans.len());

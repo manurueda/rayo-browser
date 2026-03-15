@@ -149,6 +149,37 @@ impl RayoServer {
                     }
                 })),
             ),
+            Tool::new(
+                "rayo_cookie",
+                "Manage browser cookies. Actions: set (inject cookies for auth), get (read cookies, optional domain filter), clear (delete cookies, optional domain filter).",
+                json_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["set", "get", "clear"] },
+                        "cookies": {
+                            "type": "array",
+                            "description": "Cookies to set (required for 'set' action)",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "value": { "type": "string" },
+                                    "domain": { "type": "string" },
+                                    "path": { "type": "string" },
+                                    "url": { "type": "string", "description": "URL to associate with the cookie (alternative to domain)" },
+                                    "secure": { "type": "boolean" },
+                                    "httpOnly": { "type": "boolean" },
+                                    "sameSite": { "type": "string", "enum": ["Strict", "Lax", "None"] },
+                                    "expires": { "type": "number", "description": "Expiration as Unix timestamp (seconds)" }
+                                },
+                                "required": ["name", "value"]
+                            }
+                        },
+                        "domain": { "type": "string", "description": "Filter by domain (for 'get' and 'clear' actions)" }
+                    },
+                    "required": ["action"]
+                })),
+            ),
         ]
     }
 }
@@ -203,6 +234,7 @@ impl ServerHandler for RayoServer {
                 "rayo_interact" => tools::handle_interact(&self.page, &params, &self.rules).await,
                 "rayo_batch" => tools::handle_batch(&self.page, &params).await,
                 "rayo_profile" => tools::handle_profile(&self.profiler).await,
+                "rayo_cookie" => tools::handle_cookie(&self.page, &params).await,
                 _ => Err(McpError::invalid_request(
                     format!("Unknown tool: {tool_name}"),
                     None,
