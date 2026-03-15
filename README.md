@@ -8,10 +8,16 @@ Open Claude Code and paste this:
 
 > Install rayo-browser: run `cargo install rayo-mcp` then `claude mcp add rayo -- rayo-mcp`. Then add a "rayo-browser" section to CLAUDE.md that says to use rayo MCP tools for all browser automation, always prefer `rayo_observe` with `page_map` mode over screenshots, use `rayo_batch` to combine 3+ sequential actions into a single call, and lists the 7 tools: `rayo_navigate`, `rayo_observe`, `rayo_interact`, `rayo_batch`, `rayo_cookie`, `rayo_network`, `rayo_profile`.
 
-For Cursor, Windsurf, or other MCP clients, add to your MCP config:
+For Cursor, Windsurf, or other MCP clients — add to your MCP config:
 
 ```json
-{ "mcpServers": { "rayo": { "command": "rayo-mcp" } } }
+{
+  "mcpServers": {
+    "rayo": {
+      "command": "rayo-mcp"
+    }
+  }
+}
 ```
 
 ## Why rayo?
