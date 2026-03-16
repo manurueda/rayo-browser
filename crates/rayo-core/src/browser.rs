@@ -1521,11 +1521,10 @@ fn timestamp_now_ms() -> f64 {
 
 /// Convert rayo-owned SetCookie to chromiumoxide CookieParam.
 fn to_cdp_cookie(c: SetCookie) -> CookieParam {
-    let mut cp = CookieParam::new(c.name, c.value);
-    cp.domain = c.domain.clone();
-    cp.path = c.path;
-    // CDP requires either url or domain. If url is missing, synthesize from domain.
-    cp.url = c.url.or_else(|| {
+    let mut cp = CookieParam::new(c.name.clone(), c.value);
+
+    // Synthesize URL from domain for CDP (required for cookie injection).
+    let url = c.url.clone().or_else(|| {
         c.domain.as_ref().map(|d| {
             let d = d.trim_start_matches('.');
             let scheme = if c.secure == Some(true) {
@@ -1536,6 +1535,17 @@ fn to_cdp_cookie(c: SetCookie) -> CookieParam {
             format!("{scheme}://{d}/")
         })
     });
+    cp.url = url;
+
+    // __Host- prefix cookies must NOT have a domain attribute — CDP rejects them.
+    // For other cookies, set domain only if there's no URL (prefer URL over domain).
+    if c.name.starts_with("__Host-") {
+        cp.domain = None;
+    } else {
+        cp.domain = c.domain;
+    }
+
+    cp.path = c.path;
     cp.secure = c.secure;
     cp.http_only = c.http_only;
     cp.same_site = c.same_site.map(|s| match s {
