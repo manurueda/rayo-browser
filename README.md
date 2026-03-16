@@ -110,21 +110,21 @@ Real numbers from real websites. 10 iterations, 3 warmup, warm browsers.
 ### AI Agent Sessions (Real Claude Code Patterns)
 
 ```
-Wikipedia Research        rayo 43,290 tokens  █████████░░░░░░░░░░░  57% fewer
-                    Playwright 100,369 tokens  ████████████████████
+Wikipedia Research        rayo  5,453 tokens  █░░░░░░░░░░░░░░░░░░░  94% fewer
+                    Playwright 92,604 tokens  ████████████████████
 
-Form Fill + Submit        rayo 3,753 tokens   ███░░░░░░░░░░░░░░░░░  84% fewer
-                    Playwright 23,311 tokens   ████████████████████
+Form Fill + Submit        rayo  3,687 tokens  ███░░░░░░░░░░░░░░░░░  84% fewer
+                    Playwright 23,310 tokens  ████████████████████
 
-HN Browse + Read          rayo 21,142 tokens  █████░░░░░░░░░░░░░░░  73% fewer
-                    Playwright 77,523 tokens   ████████████████████
+HN Browse + Read          rayo  6,942 tokens  ██░░░░░░░░░░░░░░░░░░  91% fewer
+                    Playwright 74,162 tokens  ████████████████████
 ```
 
 ### Page Understanding
 
 | Method | Adapter | Latency | ~Tokens |
 |--------|---------|---------|--------|
-| **page_map** | **rayo** | **<1ms** | **~120** |
+| **page_map** | **rayo** | **<1ms** | **~97** |
 | text | rayo | <1ms | ~47 |
 | screenshot | playwright | 17ms | ~5,526 |
 | screenshot | puppeteer | 17ms | ~5,487 |

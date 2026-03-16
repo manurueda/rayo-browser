@@ -6,9 +6,9 @@
 
 | Site | rayo | Playwright | Puppeteer |
 |------|------|-----------|----------|
-| example.com | 3ms | 3ms | 14ms |
-| wikipedia | 72ms | 68ms | 83ms |
-| HN | 78ms | 75ms | 93ms |
+| example.com | 3ms | 3ms | 13ms |
+| wikipedia | 71ms | 67ms | 80ms |
+| HN | 78ms | 75ms | 92ms |
 
 ### Page Understanding (Speed + Token Cost)
 
@@ -26,9 +26,9 @@
 
 | Adapter | Latency | Items | ~Tokens |
 |---------|---------|-------|--------|
-| playwright | 1ms | 30 | ~930 |
-| puppeteer | 6ms | 30 | ~930 |
-| rayo | 1ms | 50 | ~1436 |
+| playwright | 1ms | 30 | ~953 |
+| puppeteer | 7ms | 30 | ~953 |
+| rayo | 1ms | 50 | ~1457 |
 
 ### 🤖 AI Agent Session Simulations (Real Claude Code Patterns)
 
@@ -38,25 +38,25 @@ These simulate actual Claude Code workflows — the TOTAL cost of tokens + laten
 
 | Metric | Playwright MCP | rayo-browser | Advantage |
 |--------|---------------|-------------|----------|
-| Latency | 220ms | 133ms | rayo 1.7x faster |
+| Latency | 190ms | 131ms | rayo 1.5x faster |
 | Tool calls | 4 | 3 | **25% fewer** |
-| Total tokens | 100,369 | 5,453 | **95% fewer** |
+| Total tokens | 92,604 | 5,453 | **94% fewer** |
 
 #### Form Fill
 
 | Metric | Playwright MCP | rayo-browser | Advantage |
 |--------|---------------|-------------|----------|
-| Latency | 224ms | 209ms | rayo 1.1x faster |
+| Latency | 236ms | 215ms | rayo 1.1x faster |
 | Tool calls | 8 | 4 | **50% fewer** |
-| Total tokens | 23,310 | 3,711 | **84% fewer** |
+| Total tokens | 23,310 | 3,687 | **84% fewer** |
 
 #### Hn Browse
 
 | Metric | Playwright MCP | rayo-browser | Advantage |
 |--------|---------------|-------------|----------|
-| Latency | 4010ms | 204ms | rayo 19.6x faster |
+| Latency | 4428ms | 195ms | rayo 22.8x faster |
 | Tool calls | 5 | 4 | **20% fewer** |
-| Total tokens | 72,643 | 6,900 | **91% fewer** |
+| Total tokens | 74,162 | 6,942 | **91% fewer** |
 
 ### Tool Description Token Cost
 

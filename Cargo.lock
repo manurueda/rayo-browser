@@ -1565,14 +1565,11 @@ dependencies = [
 name = "rayo-bench"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "chromiumoxide",
  "criterion",
  "rayo-core",
  "rayo-profiler",
- "serde",
+ "rayo-rules",
  "serde_json",
- "tokio",
 ]
 
 [[package]]

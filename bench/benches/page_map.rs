@@ -1,7 +1,16 @@
 //! Benchmark: page map generation and serialization.
 
+use std::time::Duration;
+
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use rayo_core::page_map::{InteractiveElement, PageMap};
+
+fn configured() -> Criterion {
+    Criterion::default()
+        .measurement_time(Duration::from_secs(3))
+        .warm_up_time(Duration::from_secs(1))
+        .noise_threshold(0.05)
+}
 
 fn make_page_map(n_elements: usize) -> PageMap {
     let interactive: Vec<InteractiveElement> = (0..n_elements)
@@ -60,10 +69,9 @@ fn bench_page_map_large(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    benches,
-    bench_page_map_serialize,
-    bench_page_map_token_estimate,
-    bench_page_map_large
-);
+criterion_group! {
+    name = benches;
+    config = configured();
+    targets = bench_page_map_serialize, bench_page_map_token_estimate, bench_page_map_large
+}
 criterion_main!(benches);

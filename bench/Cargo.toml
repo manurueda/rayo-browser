@@ -8,18 +8,11 @@ description = "Benchmark suite for rayo-browser"
 [dependencies]
 rayo-core = { path = "../crates/rayo-core" }
 rayo-profiler = { path = "../crates/rayo-profiler" }
-chromiumoxide = { workspace = true }
-tokio = { workspace = true }
-serde = { workspace = true }
+rayo-rules = { path = "../crates/rayo-rules" }
 serde_json = { workspace = true }
-anyhow = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "cdp_latency"
-harness = false
 
 [[bench]]
 name = "selector_cache"
@@ -27,4 +20,12 @@ harness = false
 
 [[bench]]
 name = "page_map"
+harness = false
+
+[[bench]]
+name = "profiler"
+harness = false
+
+[[bench]]
+name = "rules"
 harness = false
