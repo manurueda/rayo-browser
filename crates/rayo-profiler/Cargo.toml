@@ -3,6 +3,7 @@ name = "rayo-profiler"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Built-in profiling for rayo-browser — zero overhead when disabled"
 
 [dependencies]

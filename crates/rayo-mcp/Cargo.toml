@@ -3,6 +3,7 @@ name = "rayo-mcp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "The fastest MCP browser automation server"
 
 [lib]
@@ -14,9 +15,9 @@ name = "rayo-mcp"
 path = "src/main.rs"
 
 [dependencies]
-rayo-core = { path = "../rayo-core" }
-rayo-profiler = { path = "../rayo-profiler" }
-rayo-rules = { path = "../rayo-rules" }
+rayo-core = { version = "0.1.0", path = "../rayo-core" }
+rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
+rayo-rules = { version = "0.1.0", path = "../rayo-rules" }
 chromiumoxide = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
