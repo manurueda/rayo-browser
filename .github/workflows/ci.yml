@@ -69,4 +69,4 @@ jobs:
           key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run benchmarks
-        run: cargo bench --bench selector_cache --bench page_map --bench profiler --bench rules
+        run: cargo bench -p rayo-bench
