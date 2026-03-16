@@ -6,9 +6,15 @@
 use std::sync::Arc;
 
 use crate::cookie::{CookieInfo, SameSite, SetCookie};
+use crate::network::{CapturedRequest, NetworkInterceptor};
 use chromiumoxide::browser::{Browser as CdpBrowser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::fetch::{
+    ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused,
+    FailRequestParams, FulfillRequestParams, HeaderEntry as FetchHeaderEntry,
+};
 use chromiumoxide::cdp::browser_protocol::network::{
-    ClearBrowserCookiesParams, CookieParam, CookieSameSite, DeleteCookiesParams, TimeSinceEpoch,
+    ClearBrowserCookiesParams, CookieParam, CookieSameSite, DeleteCookiesParams, ErrorReason,
+    TimeSinceEpoch,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams, Viewport,
@@ -244,9 +250,115 @@ impl RayoPage {
     }
 
     /// Generate a token-efficient page map for LLMs (~500 tokens).
-    pub async fn page_map(&self) -> Result<PageMap, RayoError> {
+    ///
+    /// When `selector` is `Some`, the page map is scoped to that subtree:
+    /// interactive elements, headings, and text summary are all extracted
+    /// from within the matched element only.
+    pub async fn page_map(&self, selector: Option<&str>) -> Result<PageMap, RayoError> {
         let _span = self.profiler.start_span("page_map", SpanCategory::PageMap);
-        let result = self.page.evaluate(EXTRACT_PAGE_MAP_JS).await?;
+        let js = match selector {
+            Some(sel) => {
+                let sel_json = serde_json::to_string(sel).unwrap();
+                format!(
+                    r#"
+(() => {{
+    const root = document.querySelector({sel_json});
+    if (!root) return {{
+        url: window.location.href,
+        title: document.title,
+        interactive: [],
+        headings: [],
+        text_summary: "",
+    }};
+
+    const interactive = [];
+    const selectors = 'a[href], button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]';
+    const elements = root.querySelectorAll(selectors);
+
+    const MAX_ELEMENTS = 50;
+    let count = 0;
+    elements.forEach((el, idx) => {{
+        if (count >= MAX_ELEMENTS) return;
+        if (el.offsetParent === null && el.type !== 'hidden') return;
+
+        const item = {{ id: idx, tag: el.tagName.toLowerCase(), selector: '' }};
+
+        if (el.type) item.type = el.type;
+        if (el.name) item.name = el.name;
+
+        const labelEl = el.labels && el.labels[0];
+        if (labelEl) {{
+            item.label = labelEl.textContent.trim();
+        }} else if (el.getAttribute('aria-label')) {{
+            item.label = el.getAttribute('aria-label');
+        }} else if (el.placeholder) {{
+            item.label = el.placeholder;
+        }}
+
+        const text = el.textContent?.trim();
+        if (text && text.length < 100 && (el.tagName === 'BUTTON' || el.tagName === 'A')) {{
+            item.text = text;
+        }}
+
+        if (el.placeholder) item.placeholder = el.placeholder;
+        if (el.value && el.type !== 'password') item.value = el.value;
+
+        if (el.tagName === 'SELECT') {{
+            item.options = Array.from(el.options).map(o => o.text || o.value);
+        }}
+
+        if (el.type === 'radio' || el.type === 'checkbox') {{
+            const group = document.querySelectorAll(`input[name="${{el.name}}"]`);
+            if (group.length > 1) {{
+                item.options = Array.from(group).map(r => r.value);
+            }}
+        }}
+
+        const role = el.getAttribute('role');
+        if (role) item.role = role;
+        if (el.href) item.href = el.href.length > 120 ? el.href.slice(0, 120) : el.href;
+
+        if (el.id) {{
+            item.selector = '#' + CSS.escape(el.id);
+        }} else if (el.name) {{
+            item.selector = `${{el.tagName.toLowerCase()}}[name="${{el.name}}"]`;
+        }} else {{
+            const parent = el.parentElement;
+            if (parent) {{
+                const siblings = parent.querySelectorAll(':scope > ' + el.tagName.toLowerCase());
+                const index = Array.from(siblings).indexOf(el) + 1;
+                item.selector = `${{el.tagName.toLowerCase()}}:nth-of-type(${{index}})`;
+            }}
+        }}
+
+        interactive.push(item);
+        count++;
+    }});
+
+    const headings = Array.from(root.querySelectorAll('h1, h2, h3'))
+        .map(h => h.textContent.trim())
+        .filter(t => t.length > 0)
+        .slice(0, 10);
+
+    const paragraphs = Array.from(root.querySelectorAll('p'))
+        .map(p => p.textContent.trim())
+        .filter(t => t.length > 20);
+    const textSummary = paragraphs.slice(0, 2).join(' ').slice(0, 300);
+
+    return {{
+        url: window.location.href,
+        title: document.title,
+        interactive: interactive,
+        headings: headings,
+        text_summary: textSummary || document.title,
+    }};
+}})()"#,
+                    sel_json = sel_json,
+                )
+            }
+            None => EXTRACT_PAGE_MAP_JS.to_string(),
+        };
+        let result = self.page.evaluate(js).await?;
         let map: PageMap = result
             .into_value()
             .map_err(|e| RayoError::Cdp(format!("Failed to deserialize page map: {e:?}")))?;
@@ -254,15 +366,38 @@ impl RayoPage {
         Ok(map)
     }
 
-    /// Get text content of the page or a specific element.
-    pub async fn text_content(&self, selector: Option<&str>) -> Result<String, RayoError> {
+    /// Get text content of the page or specific elements.
+    ///
+    /// When a selector is provided, uses `querySelectorAll` and joins all matches
+    /// with newlines. Results are capped at `max_elements`; if exceeded, a
+    /// `[truncated: N more elements matched]` notice is appended.
+    pub async fn text_content(
+        &self,
+        selector: Option<&str>,
+        max_elements: usize,
+    ) -> Result<String, RayoError> {
         let _span = self
             .profiler
             .start_span("text_content", SpanCategory::DomRead);
         let js = match selector {
             Some(sel) => format!(
-                "document.querySelector({}).textContent",
-                serde_json::to_string(sel).unwrap()
+                r#"(() => {{
+                    const els = document.querySelectorAll({sel_json});
+                    if (els.length === 0) return "";
+                    const max = {max};
+                    const texts = [];
+                    for (let i = 0; i < Math.min(els.length, max); i++) {{
+                        const t = (els[i].textContent || "").trim();
+                        if (t) texts.push(t);
+                    }}
+                    let result = texts.join("\n");
+                    if (els.length > max) {{
+                        result += "\n[truncated: " + (els.length - max) + " more elements matched]";
+                    }}
+                    return result;
+                }})()"#,
+                sel_json = serde_json::to_string(sel).unwrap(),
+                max = max_elements,
             ),
             None => "document.body.innerText".to_string(),
         };
@@ -422,7 +557,12 @@ impl RayoPage {
     }
 
     /// Execute a batch of actions.
-    pub async fn execute_batch(&self, actions: Vec<BatchAction>) -> Result<BatchResult, RayoError> {
+    /// When `abort_on_failure` is true, remaining actions are skipped after the first failure.
+    pub async fn execute_batch(
+        &self,
+        actions: Vec<BatchAction>,
+        abort_on_failure: bool,
+    ) -> Result<BatchResult, RayoError> {
         let _span = self
             .profiler
             .start_span(format!("batch({})", actions.len()), SpanCategory::Batch);
@@ -505,6 +645,21 @@ impl RayoPage {
                         data: None,
                         duration_ms,
                     });
+                    if abort_on_failure {
+                        // Mark remaining actions as skipped
+                        for (j, remaining) in actions.iter().enumerate().skip(i + 1) {
+                            results.push(BatchActionResult {
+                                index: j,
+                                action: action_name(remaining).to_string(),
+                                success: false,
+                                error: Some("Skipped (abort_on_failure)".to_string()),
+                                data: None,
+                                duration_ms: 0.0,
+                            });
+                            failed += 1;
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -642,6 +797,135 @@ impl RayoPage {
         Ok(())
     }
 
+    /// Enable CDP Fetch-domain interception and wire events to the NetworkInterceptor.
+    ///
+    /// Subscribes to `Fetch.requestPaused` events. For each paused request the handler
+    /// checks block rules, mock rules, and capture state in the shared `NetworkInterceptor`,
+    /// then responds with `failRequest`, `fulfillRequest`, or `continueRequest` accordingly.
+    pub async fn enable_network_interception(
+        &self,
+        network: Arc<Mutex<NetworkInterceptor>>,
+    ) -> Result<(), RayoError> {
+        // Enable the Fetch domain — intercept all requests
+        self.page
+            .execute(FetchEnableParams {
+                patterns: None, // intercept everything
+                handle_auth_requests: None,
+            })
+            .await
+            .map_err(|e| RayoError::Cdp(format!("Fetch.enable failed: {e}")))?;
+
+        // Subscribe to requestPaused events
+        let mut events = self
+            .page
+            .event_listener::<EventRequestPaused>()
+            .await
+            .map_err(|e| RayoError::Cdp(format!("Failed to listen for Fetch events: {e}")))?;
+
+        // Clone the inner CdpPage handle for the spawned task
+        let page = self.page.clone();
+
+        tokio::spawn(async move {
+            while let Some(event) = events.next().await {
+                let event = Arc::new(event);
+                let request_id = event.request_id.clone();
+                let url = event.request.url.clone();
+                let method = event.request.method.clone();
+                let resource_type_str = event.resource_type.as_ref().to_string();
+
+                // Extract request headers as Vec<(String, String)>
+                let headers: Vec<(String, String)> = event
+                    .request
+                    .headers
+                    .inner()
+                    .as_object()
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, v)| {
+                                v.as_str().map(|val| (k.clone(), val.to_string()))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let mut net = network.lock().await;
+
+                // 1. Check block rules
+                if net.should_block(&url, Some(&resource_type_str)) {
+                    drop(net);
+                    if let Err(e) = page
+                        .execute(FailRequestParams::new(
+                            request_id,
+                            ErrorReason::BlockedByClient,
+                        ))
+                        .await
+                    {
+                        tracing::warn!("Fetch.failRequest failed: {e}");
+                    }
+                    continue;
+                }
+
+                // 2. Check mock rules
+                if let Some(mock) = net.find_mock(&url, Some(&resource_type_str)).cloned() {
+                    // Record the request if capturing
+                    if net.is_capturing() {
+                        net.record_request(CapturedRequest {
+                            url: url.clone(),
+                            method,
+                            resource_type: resource_type_str,
+                            status: Some(mock.status as i64),
+                            headers,
+                            timestamp_ms: timestamp_now_ms(),
+                        });
+                    }
+                    drop(net);
+
+                    let response_headers: Vec<FetchHeaderEntry> = mock
+                        .headers
+                        .iter()
+                        .map(|(k, v)| FetchHeaderEntry::new(k.clone(), v.clone()))
+                        .collect();
+
+                    use base64::Engine;
+                    let body_b64 =
+                        base64::engine::general_purpose::STANDARD.encode(mock.body.as_bytes());
+
+                    let mut params =
+                        FulfillRequestParams::new(request_id, mock.status as i64);
+                    params.response_headers = Some(response_headers);
+                    params.body = Some(body_b64.into());
+
+                    if let Err(e) = page.execute(params).await {
+                        tracing::warn!("Fetch.fulfillRequest failed: {e}");
+                    }
+                    continue;
+                }
+
+                // 3. Record and continue
+                if net.is_capturing() {
+                    net.record_request(CapturedRequest {
+                        url,
+                        method,
+                        resource_type: resource_type_str,
+                        status: None, // status unknown at request stage
+                        headers,
+                        timestamp_ms: timestamp_now_ms(),
+                    });
+                }
+                drop(net);
+
+                if let Err(e) = page
+                    .execute(ContinueRequestParams::new(request_id))
+                    .await
+                {
+                    tracing::warn!("Fetch.continueRequest failed: {e}");
+                }
+            }
+        });
+
+        Ok(())
+    }
+
     /// Resolve a selector from either a CSS selector or a page map element ID.
     async fn resolve_selector(
         &self,
@@ -682,7 +966,7 @@ impl RayoPage {
             }
             drop(cache);
             // Refresh page map and retry
-            let map = self.page_map().await?;
+            let map = self.page_map(None).await?;
             if let Some(el) = map.interactive.iter().find(|e| e.id == element_id) {
                 let resolved = el.selector.clone();
                 self.selector_cache
@@ -730,6 +1014,15 @@ fn truncate(s: &str, max: usize) -> &str {
         end -= 1;
     }
     &s[..end]
+}
+
+/// Current time in milliseconds since UNIX epoch, for captured request timestamps.
+fn timestamp_now_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
+        * 1000.0
 }
 
 /// Convert rayo-owned SetCookie to chromiumoxide CookieParam.

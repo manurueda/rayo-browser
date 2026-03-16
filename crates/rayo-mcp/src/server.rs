@@ -80,6 +80,15 @@ impl RayoServer {
             let page = browser.new_page().await.map_err(|e| {
                 McpError::internal_error(format!("Failed to create page: {e}"), None)
             })?;
+            // Wire CDP Fetch events to the shared NetworkInterceptor
+            page.enable_network_interception(Arc::clone(&self.network))
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        format!("Failed to enable network interception: {e}"),
+                        None,
+                    )
+                })?;
             let tab_id = "tab-0".to_string();
             tabs_guard.add_tab(tab_id, page);
             tracing::debug!("Created initial tab");
@@ -115,6 +124,15 @@ impl RayoServer {
                 let page = browser.new_page().await.map_err(|e| {
                     McpError::internal_error(format!("Failed to create tab: {e}"), None)
                 })?;
+                // Wire CDP Fetch events to the shared NetworkInterceptor
+                page.enable_network_interception(Arc::clone(&self.network))
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to enable network interception: {e}"),
+                            None,
+                        )
+                    })?;
 
                 let mut tabs = self.tabs.lock().await;
                 let tab_id = format!("tab-{}", tabs.tab_count());
@@ -225,12 +243,13 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_observe",
-                "Observe the page. Modes: page_map (default, ~500 tokens, structured), text (raw text), screenshot (base64 JPEG). Optional tab_id.",
+                "Observe the page. Modes: page_map (default, ~500 tokens, structured — supports selector to scope to a subtree), text (raw text — supports selector + max_elements), screenshot (base64 JPEG). Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
                         "mode": { "type": "string", "enum": ["page_map", "text", "screenshot"], "default": "page_map" },
                         "selector": { "type": "string", "description": "CSS selector to scope observation" },
+                        "max_elements": { "type": "integer", "description": "Max elements for text mode with selector (default: 50)", "default": 50 },
                         "full_page": { "type": "boolean", "default": false },
                         "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
                     }
@@ -275,6 +294,7 @@ impl RayoServer {
                                 "required": ["action"]
                             }
                         },
+                        "abort_on_failure": { "type": "boolean", "description": "Stop batch on first failure (default: false)", "default": false },
                         "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
                     },
                     "required": ["actions"]

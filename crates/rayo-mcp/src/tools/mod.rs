@@ -38,7 +38,7 @@ pub async fn handle_navigate(
 
             // Auto-return page_map after navigation (delight feature)
             // page_map already contains title and URL, so no separate CDP calls needed
-            if let Ok(map) = page.page_map().await {
+            if let Ok(map) = page.page_map(None).await {
                 let json = serde_json::to_string(&map).unwrap_or_default();
                 let content = vec![
                     Content::text(format!("Navigated to {}\nTitle: {}", map.url, map.title)),
@@ -113,13 +113,21 @@ pub async fn handle_observe(
 
     match mode {
         "page_map" => {
-            let map = page.page_map().await.map_err(internal_err)?;
+            let selector = params.get("selector").and_then(|v| v.as_str());
+            let map = page.page_map(selector).await.map_err(internal_err)?;
             let json = serde_json::to_string(&map).unwrap_or_default();
             Ok(CallToolResult::success(vec![Content::text(json)]))
         }
         "text" => {
             let selector = params.get("selector").and_then(|v| v.as_str());
-            let text = page.text_content(selector).await.map_err(internal_err)?;
+            let max_elements = params
+                .get("max_elements")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(50) as usize;
+            let text = page
+                .text_content(selector, max_elements)
+                .await
+                .map_err(internal_err)?;
             Ok(CallToolResult::success(vec![Content::text(text)]))
         }
         "screenshot" => {
@@ -220,12 +228,20 @@ pub async fn handle_batch(
     let actions: Vec<rayo_core::batch::BatchAction> = serde_json::from_value(actions_value.clone())
         .map_err(|e| McpError::invalid_params(format!("Invalid actions: {e}"), None))?;
 
-    let result = page.execute_batch(actions).await.map_err(internal_err)?;
+    let abort_on_failure = params
+        .get("abort_on_failure")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let result = page
+        .execute_batch(actions, abort_on_failure)
+        .await
+        .map_err(internal_err)?;
 
     let json = serde_json::to_string(&result).unwrap_or_default();
     // Auto-return page_map so LLM doesn't need a separate observe call
     let mut content = vec![Content::text(json)];
-    if let Ok(map) = page.page_map().await {
+    if let Ok(map) = page.page_map(None).await {
         let map_json = serde_json::to_string(&map).unwrap_or_default();
         content.push(Content::text(format!("\n--- page_map ---\n{map_json}")));
     }
