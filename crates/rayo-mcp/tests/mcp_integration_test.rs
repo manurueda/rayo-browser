@@ -173,7 +173,8 @@ async fn test_mcp_tools() {
             let _s = profiler.start_span("test_nav", rayo_profiler::SpanCategory::Navigation);
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        let result = rayo_mcp::tools::handle_profile(&profiler).await;
+        let params = serde_json::Map::new();
+        let result = rayo_mcp::tools::handle_profile(&profiler, &params).await;
         assert!(result.is_ok(), "profile failed: {:?}", result.err());
         let json = serde_json::to_string(&result.unwrap().content).unwrap();
         assert!(
