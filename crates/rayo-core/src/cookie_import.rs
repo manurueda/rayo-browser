@@ -266,6 +266,16 @@ fn read_cookies_from_db(
     )
     .map_err(|e| RayoError::CookieError(format!("Failed to open cookie database: {e}")))?;
 
+    // Read the cookie database version from the meta table.
+    // Version 24+ prepends a 32-byte SHA256 hash to the encrypted value.
+    let db_version: u32 = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
     let base_query = "SELECT host_key, name, value, encrypted_value, path, \
                       is_secure, is_httponly, expires_utc, samesite FROM cookies";
 
@@ -281,7 +291,7 @@ fn read_cookies_from_db(
             .query_map([&pattern], map_cookie_row)
             .map_err(|e| RayoError::CookieError(format!("SQL query failed: {e}")))?;
         for row in rows {
-            if let Some(cookie) = process_row(row, key)? {
+            if let Some(cookie) = process_row(row, key, db_version)? {
                 cookies.push(cookie);
             }
         }
@@ -293,7 +303,7 @@ fn read_cookies_from_db(
             .query_map([], map_cookie_row)
             .map_err(|e| RayoError::CookieError(format!("SQL query failed: {e}")))?;
         for row in rows {
-            if let Some(cookie) = process_row(row, key)? {
+            if let Some(cookie) = process_row(row, key, db_version)? {
                 cookies.push(cookie);
             }
         }
@@ -320,12 +330,24 @@ fn map_cookie_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawCookie> {
 fn process_row(
     row: rusqlite::Result<RawCookie>,
     key: &[u8; 16],
+    db_version: u32,
 ) -> Result<Option<SetCookie>, RayoError> {
     let raw = row.map_err(|e| RayoError::CookieError(format!("Failed to read cookie row: {e}")))?;
 
     // Prefer encrypted_value; fall back to plaintext value column
     let value = if !raw.encrypted_value.is_empty() {
-        decrypt_cookie_value(&raw.encrypted_value, key).unwrap_or(raw.value)
+        match decrypt_cookie_value(&raw.encrypted_value, key, db_version) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::debug!(
+                    "Failed to decrypt cookie '{}': {e} (enc_len={}, prefix={:?})",
+                    raw.name,
+                    raw.encrypted_value.len(),
+                    raw.encrypted_value.get(..3)
+                );
+                raw.value
+            }
+        }
     } else {
         raw.value
     };
@@ -367,7 +389,7 @@ fn process_row(
 ///
 /// Chromium encrypts cookie values with a "v10" prefix followed by
 /// AES-128-CBC ciphertext (IV = 0x00*16) with PKCS7 padding.
-fn decrypt_cookie_value(encrypted: &[u8], key: &[u8; 16]) -> Result<String, RayoError> {
+fn decrypt_cookie_value(encrypted: &[u8], key: &[u8; 16], db_version: u32) -> Result<String, RayoError> {
     if encrypted.len() < 3 {
         return String::from_utf8(encrypted.to_vec())
             .map_err(|e| RayoError::CookieError(format!("Cookie value is not valid UTF-8: {e}")));
@@ -382,7 +404,15 @@ fn decrypt_cookie_value(encrypted: &[u8], key: &[u8; 16]) -> Result<String, Rayo
                     ciphertext.len()
                 )));
             }
-            let plaintext = decrypt_aes_128_cbc(ciphertext, key);
+            let mut plaintext = decrypt_aes_128_cbc(ciphertext, key);
+
+            // Cookie DB version 24+ prepends a 32-byte SHA256 hash of the
+            // cookie's domain to the encrypted value. Strip it.
+            // https://github.com/nicholasxjy/pycookiecheat/blob/main/src/pycookiecheat/chrome.py#L92-L96
+            if db_version >= 24 && plaintext.len() > 32 {
+                plaintext = plaintext[32..].to_vec();
+            }
+
             String::from_utf8(plaintext).map_err(|e| {
                 RayoError::CookieError(format!("Decrypted cookie is not valid UTF-8: {e}"))
             })
@@ -403,7 +433,8 @@ fn decrypt_aes_128_cbc(ciphertext: &[u8], key: &[u8; 16]) -> Vec<u8> {
     use aes::cipher::{BlockDecrypt, KeyInit};
 
     let cipher = Aes128::new(GenericArray::from_slice(key));
-    let iv = [0u8; 16];
+    // Chromium uses space (0x20) as IV, not zero
+    let iv = [0x20u8; 16];
     let mut plaintext = Vec::with_capacity(ciphertext.len());
     let mut prev = iv;
 
@@ -457,20 +488,21 @@ mod tests {
 
     #[test]
     fn decrypt_known_value() {
-        // AES-128-CBC with key=0x00*16, IV=0x00*16
-        // Plaintext "hello" with PKCS7 padding (11 bytes of 0x0b):
-        //   [104, 101, 108, 108, 111, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11]
-        // After AES-128-ECB encrypt of that padded block, XOR with IV (zeros) = same as ECB.
-        // We can verify the round-trip by encrypting then decrypting.
+        // AES-128-CBC with key=0x00*16, IV=0x20*16 (Chromium uses space as IV)
+        // Round-trip: encrypt with CBC using space IV, then decrypt should recover.
         use aes::Aes128;
         use aes::cipher::generic_array::GenericArray;
         use aes::cipher::{BlockEncrypt, KeyInit};
 
         let key = [0u8; 16];
+        let iv = [0x20u8; 16]; // space IV, matching Chromium
         let cipher = Aes128::new(GenericArray::from_slice(&key));
 
-        // "hello" + PKCS7 padding
-        let padded = *b"hello\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b";
+        // "hello" + PKCS7 padding, XOR with IV for first block
+        let mut padded = *b"hello\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b";
+        for (i, byte) in padded.iter_mut().enumerate() {
+            *byte ^= iv[i];
+        }
         let mut block = GenericArray::clone_from_slice(&padded);
         cipher.encrypt_block(&mut block);
         let ciphertext: Vec<u8> = block.to_vec();
@@ -482,7 +514,7 @@ mod tests {
         // Full cookie format: "v10" prefix + ciphertext
         let mut encrypted = b"v10".to_vec();
         encrypted.extend_from_slice(&ciphertext);
-        let result = decrypt_cookie_value(&encrypted, &key).unwrap();
+        let result = decrypt_cookie_value(&encrypted, &key, 0).unwrap();
         assert_eq!(result, "hello");
     }
 
@@ -490,7 +522,7 @@ mod tests {
     fn decrypt_unknown_prefix_falls_back_to_raw() {
         let key = [0u8; 16];
         let raw = b"plaintext_value";
-        let result = decrypt_cookie_value(raw, &key).unwrap();
+        let result = decrypt_cookie_value(raw, &key, 0).unwrap();
         assert_eq!(result, "plaintext_value");
     }
 }
