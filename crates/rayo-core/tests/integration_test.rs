@@ -78,7 +78,7 @@ async fn test_browser_operations() {
     eprintln!("  PASS: navigate_and_title");
 
     // --- Test: text content ---
-    let text = page.text_content(None).await.unwrap();
+    let text = page.text_content(None, 50).await.unwrap();
     assert!(
         text.contains("Test Page"),
         "Text should contain 'Test Page'"
@@ -91,7 +91,7 @@ async fn test_browser_operations() {
     eprintln!("  PASS: evaluate");
 
     // --- Test: page map ---
-    let map = page.page_map().await.unwrap();
+    let map = page.page_map(None).await.unwrap();
     assert!(!map.url.is_empty(), "Page map URL should not be empty");
     assert!(!map.title.is_empty(), "Page map title should not be empty");
     assert!(
@@ -116,7 +116,7 @@ async fn test_browser_operations() {
 
     // --- Test: batch execution ---
     let actions = vec![BatchAction::Screenshot { full_page: false }];
-    let batch_result = page.execute_batch(actions).await.unwrap();
+    let batch_result = page.execute_batch(actions, false).await.unwrap();
     assert_eq!(batch_result.succeeded, 1);
     assert_eq!(batch_result.failed, 0);
     assert!(batch_result.all_succeeded());
@@ -181,7 +181,7 @@ async fn test_browser_operations() {
         );
 
         // Get page map to verify form elements are detected
-        let map = page.page_map().await.unwrap();
+        let map = page.page_map(None).await.unwrap();
         assert!(
             map.interactive
                 .iter()
@@ -279,7 +279,7 @@ async fn test_browser_operations() {
             },
             BatchAction::Screenshot { full_page: false },
         ];
-        let batch_result = page.execute_batch(actions).await.unwrap();
+        let batch_result = page.execute_batch(actions, false).await.unwrap();
         assert_eq!(
             batch_result.succeeded, 2,
             "Both batch actions should succeed"

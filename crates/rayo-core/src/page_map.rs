@@ -151,11 +151,17 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
         .filter(t => t.length > 0)
         .slice(0, 10);
 
-    // Text summary (first meaningful paragraph)
-    const paragraphs = Array.from(document.querySelectorAll('p'))
-        .map(p => p.textContent.trim())
-        .filter(t => t.length > 20);
-    const textSummary = paragraphs.slice(0, 2).join(' ').slice(0, 300);
+    // Text summary — find main content region, then extract visible text
+    const mainContent = document.querySelector('main, [role="main"], article, .readme, #readme') || document.body;
+    const paragraphs = Array.from(mainContent.querySelectorAll('p, li, dd, blockquote'))
+        .filter(el => {
+            if (!el.offsetParent && el.style.position !== 'fixed') return false;
+            const text = el.textContent.trim();
+            return text.length > 20;
+        })
+        .map(el => el.textContent.trim())
+        .slice(0, 5);
+    const textSummary = paragraphs.join(' ').slice(0, 600);
 
     return {
         url: window.location.href,

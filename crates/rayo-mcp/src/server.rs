@@ -80,6 +80,15 @@ impl RayoServer {
             let page = browser.new_page().await.map_err(|e| {
                 McpError::internal_error(format!("Failed to create page: {e}"), None)
             })?;
+            // Wire passive Network domain monitoring for capture
+            page.enable_network_monitoring(Arc::clone(&self.network))
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(
+                        format!("Failed to enable network monitoring: {e}"),
+                        None,
+                    )
+                })?;
             let tab_id = "tab-0".to_string();
             tabs_guard.add_tab(tab_id, page);
             tracing::debug!("Created initial tab");
@@ -115,6 +124,15 @@ impl RayoServer {
                 let page = browser.new_page().await.map_err(|e| {
                     McpError::internal_error(format!("Failed to create tab: {e}"), None)
                 })?;
+                // Wire passive Network domain monitoring for capture
+                page.enable_network_monitoring(Arc::clone(&self.network))
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to enable network monitoring: {e}"),
+                            None,
+                        )
+                    })?;
 
                 let mut tabs = self.tabs.lock().await;
                 let tab_id = format!("tab-{}", tabs.tab_count());
@@ -225,12 +243,13 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_observe",
-                "Observe the page. Modes: page_map (default, ~500 tokens, structured), text (raw text), screenshot (base64 JPEG). Optional tab_id.",
+                "Observe the page. Modes: page_map (default, ~500 tokens, structured — supports selector to scope to a subtree), text (raw text — supports selector + max_elements), screenshot (base64 JPEG). Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
                         "mode": { "type": "string", "enum": ["page_map", "text", "screenshot"], "default": "page_map" },
                         "selector": { "type": "string", "description": "CSS selector to scope observation" },
+                        "max_elements": { "type": "integer", "description": "Max elements for text mode with selector (default: 50)", "default": 50 },
                         "full_page": { "type": "boolean", "default": false },
                         "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
                     }
@@ -238,11 +257,11 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_interact",
-                "Interact with an element. Use id from page_map or CSS selector. Actions: click, type (requires value), select (requires value), scroll. Optional tab_id.",
+                "Interact with an element. Use id from page_map or CSS selector. Actions: click, type (requires value), press (requires value — key name like \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\"), select (requires value), scroll. Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
-                        "action": { "type": "string", "enum": ["click", "type", "select", "scroll"] },
+                        "action": { "type": "string", "enum": ["click", "type", "press", "select", "scroll"] },
                         "id": { "type": "integer", "description": "Element ID from page_map" },
                         "selector": { "type": "string", "description": "CSS selector (alternative to id)" },
                         "value": { "type": "string", "description": "Text to type or option to select" },
@@ -262,10 +281,11 @@ impl RayoServer {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "action": { "type": "string", "enum": ["click", "type", "select", "goto", "screenshot", "wait_for", "scroll"] },
+                                    "action": { "type": "string", "enum": ["click", "type", "press", "select", "goto", "screenshot", "wait_for", "scroll"] },
                                     "id": { "type": "integer" },
                                     "selector": { "type": "string" },
                                     "value": { "type": "string" },
+                                    "key": { "type": "string", "description": "Key name for press action (e.g. Enter, Tab, Escape, ArrowDown)" },
                                     "url": { "type": "string" },
                                     "full_page": { "type": "boolean" },
                                     "timeout_ms": { "type": "integer" },
@@ -275,6 +295,7 @@ impl RayoServer {
                                 "required": ["action"]
                             }
                         },
+                        "abort_on_failure": { "type": "boolean", "description": "Stop batch on first failure (default: false)", "default": false },
                         "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
                     },
                     "required": ["actions"]
@@ -439,7 +460,11 @@ impl ServerHandler for RayoServer {
                     let page = Self::resolve_page(&tabs, tab_id).await?;
                     tools::handle_cookie(page, &params).await
                 }
-                "rayo_network" => tools::handle_network(&self.network, &params).await,
+                "rayo_network" => {
+                    let tabs = self.tabs.lock().await;
+                    let page = Self::resolve_page(&tabs, tab_id).await?;
+                    tools::handle_network(page, &self.network, &params).await
+                }
                 "rayo_profile" => tools::handle_profile(&self.profiler, &params).await,
                 _ => Err(McpError::invalid_request(
                     format!("Unknown tool: {tool_name}"),
