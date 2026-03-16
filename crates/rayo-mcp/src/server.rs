@@ -65,12 +65,11 @@ impl RayoServer {
         if browser_guard.is_none() {
             tracing::info!("Launching Chrome browser...");
             let profiler = (*self.profiler).clone();
-            let browser =
-                RayoBrowser::launch_with_profiler(profiler)
-                    .await
-                    .map_err(|e| {
-                        McpError::internal_error(format!("Failed to launch browser: {e}"), None)
-                    })?;
+            let browser = RayoBrowser::launch_with_profiler(profiler)
+                .await
+                .map_err(|e| {
+                    McpError::internal_error(format!("Failed to launch browser: {e}"), None)
+                })?;
             *browser_guard = Some(browser);
         }
 
