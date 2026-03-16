@@ -1121,19 +1121,22 @@ impl RayoPage {
             format!("set_cookies({})", cookies.len()),
             SpanCategory::CdpCommand,
         );
-        // Set cookies individually — one bad cookie shouldn't block the rest
+        // Set cookies individually — one bad cookie shouldn't block the rest.
+        // Use set_cookie (singular) which handles URL validation per-cookie.
         let mut set_count = 0;
+        let total = cookies.len();
         for cookie in cookies {
             let name = cookie.name.clone();
             let cdp = to_cdp_cookie(cookie);
-            match self.page.set_cookies(vec![cdp]).await {
+            match self.page.set_cookie(cdp).await {
                 Ok(_) => set_count += 1,
                 Err(e) => {
-                    tracing::warn!("Failed to set cookie '{}': {}", name, e);
+                    tracing::warn!("Failed to set cookie '{name}': {e}");
                 }
             }
         }
-        if set_count == 0 {
+        tracing::debug!("Set {set_count}/{total} cookies");
+        if set_count == 0 && total > 0 {
             return Err(RayoError::CookieError(
                 "Failed to set any cookies".to_string(),
             ));
