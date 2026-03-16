@@ -171,7 +171,7 @@ impl RayoServer {
                         "active": active,
                     }));
                 }
-                let json = serde_json::to_string_pretty(&info).unwrap_or_default();
+                let json = serde_json::to_string(&info).unwrap_or_default();
                 Ok(CallToolResult::success(vec![Content::text(json)]))
             }
             "switch_tab" => {
@@ -222,7 +222,7 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_observe",
-                "Observe the page. Modes: page_map (default, ~500 tokens, structured), text (raw text), screenshot (base64 PNG). Optional tab_id.",
+                "Observe the page. Modes: page_map (default, ~500 tokens, structured), text (raw text), screenshot (base64 JPEG). Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
@@ -434,7 +434,7 @@ impl ServerHandler for RayoServer {
                     tools::handle_cookie(page, &params).await
                 }
                 "rayo_network" => tools::handle_network(&self.network, &params).await,
-                "rayo_profile" => tools::handle_profile(&self.profiler).await,
+                "rayo_profile" => tools::handle_profile(&self.profiler, &params).await,
                 _ => Err(McpError::invalid_request(
                     format!("Unknown tool: {tool_name}"),
                     None,

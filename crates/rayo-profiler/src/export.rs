@@ -6,7 +6,7 @@ use serde::Serialize;
 
 /// Export spans to JSON string.
 pub fn to_json(spans: &[ProfileSpan]) -> String {
-    serde_json::to_string_pretty(spans).unwrap_or_default()
+    serde_json::to_string(spans).unwrap_or_default()
 }
 
 /// Chrome DevTools Trace Event Format.

@@ -3,14 +3,6 @@
 //! 7 tools, ~2,000 tokens total tool description.
 //! Handlers receive a resolved &RayoPage — tab resolution is done by the server.
 
-pub mod batch;
-pub mod cookie;
-pub mod interact;
-pub mod navigate;
-pub mod network;
-pub mod observe;
-pub mod profile;
-
 use std::sync::Arc;
 
 use rayo_core::RayoPage;
@@ -43,18 +35,24 @@ pub async fn handle_navigate(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| McpError::invalid_params("url is required for goto", None))?;
             page.goto(url).await.map_err(internal_err)?;
-            let title = page.title().await.unwrap_or_default();
-            let current_url = page.url().await.unwrap_or_default();
 
             // Auto-return page_map after navigation (delight feature)
-            let mut content = vec![Content::text(format!(
-                "Navigated to {current_url}\nTitle: {title}"
-            ))];
+            // page_map already contains title and URL, so no separate CDP calls needed
             if let Ok(map) = page.page_map().await {
-                let json = serde_json::to_string_pretty(&map).unwrap_or_default();
-                content.push(Content::text(format!("\n--- page_map ---\n{json}")));
+                let json = serde_json::to_string(&map).unwrap_or_default();
+                let content = vec![
+                    Content::text(format!("Navigated to {}\nTitle: {}", map.url, map.title)),
+                    Content::text(format!("\n--- page_map ---\n{json}")),
+                ];
+                Ok(CallToolResult::success(content))
+            } else {
+                // Fallback if page_map fails
+                let current_url = page.url().await.unwrap_or_default();
+                let title = page.title().await.unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Navigated to {current_url}\nTitle: {title}"
+                ))]))
             }
-            Ok(CallToolResult::success(content))
         }
         "reload" => {
             page.reload().await.map_err(internal_err)?;
@@ -116,7 +114,7 @@ pub async fn handle_observe(
     match mode {
         "page_map" => {
             let map = page.page_map().await.map_err(internal_err)?;
-            let json = serde_json::to_string_pretty(&map).unwrap_or_default();
+            let json = serde_json::to_string(&map).unwrap_or_default();
             Ok(CallToolResult::success(vec![Content::text(json)]))
         }
         "text" => {
@@ -224,11 +222,11 @@ pub async fn handle_batch(
 
     let result = page.execute_batch(actions).await.map_err(internal_err)?;
 
-    let json = serde_json::to_string_pretty(&result).unwrap_or_default();
+    let json = serde_json::to_string(&result).unwrap_or_default();
     // Auto-return page_map so LLM doesn't need a separate observe call
     let mut content = vec![Content::text(json)];
     if let Ok(map) = page.page_map().await {
-        let map_json = serde_json::to_string_pretty(&map).unwrap_or_default();
+        let map_json = serde_json::to_string(&map).unwrap_or_default();
         content.push(Content::text(format!("\n--- page_map ---\n{map_json}")));
     }
     Ok(CallToolResult::success(content))
@@ -303,7 +301,7 @@ pub async fn handle_cookie(
             } else {
                 cookies
             };
-            let json = serde_json::to_string_pretty(&filtered).unwrap_or_default();
+            let json = serde_json::to_string(&filtered).unwrap_or_default();
             Ok(CallToolResult::success(vec![Content::text(json)]))
         }
         "clear" => {
@@ -357,7 +355,7 @@ pub async fn handle_network(
         "requests" => {
             let url_pattern = params.get("url_pattern").and_then(|v| v.as_str());
             let requests = net.filtered_requests(url_pattern);
-            let json = serde_json::to_string_pretty(&requests).unwrap_or_default();
+            let json = serde_json::to_string(&requests).unwrap_or_default();
             Ok(CallToolResult::success(vec![Content::text(format!(
                 "{} request(s) captured\n{json}",
                 requests.len()
@@ -439,7 +437,19 @@ pub async fn handle_network(
     }
 }
 
-pub async fn handle_profile(profiler: &Arc<Profiler>) -> Result<CallToolResult, McpError> {
-    let summary = profiler.export_ai_summary();
-    Ok(CallToolResult::success(vec![Content::text(summary)]))
+pub async fn handle_profile(
+    profiler: &Arc<Profiler>,
+    params: &serde_json::Map<String, Value>,
+) -> Result<CallToolResult, McpError> {
+    let format = params
+        .get("format")
+        .and_then(|v| v.as_str())
+        .unwrap_or("ai_summary");
+    let text = match format {
+        "json" => profiler.export_json(),
+        "markdown" => profiler.export_markdown(),
+        "chrome_trace" => profiler.export_chrome_trace(),
+        _ => profiler.export_ai_summary(),
+    };
+    Ok(CallToolResult::success(vec![Content::text(text)]))
 }

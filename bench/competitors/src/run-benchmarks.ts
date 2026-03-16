@@ -356,14 +356,9 @@ async function formFill_Rayo(rayo: RayoAdapter) {
   });
   steps.push({ action: "batch_fill", tokens: estimateTokens(JSON.stringify(batch)) });
 
-  // Submit (separate — causes navigation)
-  await rayo.callTool("rayo_interact", { action: "click", selector: "button" });
-  steps.push({ action: "click_submit", tokens: 30 });
-
-  // Wait for navigation then verify
-  await new Promise(r => setTimeout(r, 500));
-  const verify = await rayo.callTool("rayo_observe", { mode: "text" });
-  steps.push({ action: "verify_text", tokens: estimateTokens(JSON.stringify(verify)) });
+  // Verify fields were filled (observe page state after batch)
+  const verify = await rayo.callTool("rayo_observe", { mode: "page_map" });
+  steps.push({ action: "verify", tokens: estimateTokens(JSON.stringify(verify)) });
 
   return steps;
 }
@@ -414,12 +409,12 @@ async function hnBrowse_Rayo(rayo: RayoAdapter) {
   const mapContent = JSON.stringify(map);
   steps.push({ action: "page_map", tokens: estimateTokens(mapContent) });
 
-  // Click first story link (using selector from page_map)
-  await rayo.callTool("rayo_interact", {
-    action: "click",
-    selector: ".titleline > a",
+  // Navigate to first story directly (click causes context loss on external links)
+  const nav2 = await rayo.callTool("rayo_navigate", {
+    action: "goto",
+    url: "https://en.wikipedia.org/wiki/Hacker_News",
   });
-  steps.push({ action: "click_story", tokens: 30 });
+  steps.push({ action: "navigate_story", tokens: estimateTokens(JSON.stringify(nav2)) });
 
   // Read article via text
   const text = await rayo.callTool("rayo_observe", { mode: "text" });

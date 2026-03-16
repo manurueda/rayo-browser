@@ -6,7 +6,6 @@
 pub mod config;
 pub mod defaults;
 pub mod engine;
-pub mod suggestions;
 
 pub use config::RayoRulesConfig;
 pub use engine::{RuleEngine, Violation};

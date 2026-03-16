@@ -125,7 +125,13 @@ impl Profiler {
         let start = Instant::now();
         let start_us = start.duration_since(self.epoch).as_micros() as u64;
         let id = {
-            let mut c = self.collector.lock().unwrap();
+            let Ok(mut c) = self.collector.lock() else {
+                return SpanGuard {
+                    id: 0,
+                    start,
+                    collector: self.collector.clone(),
+                };
+            };
             c.start_span(name.into(), category, start_us, None)
         };
         SpanGuard {
@@ -145,7 +151,13 @@ impl Profiler {
         let start = Instant::now();
         let start_us = start.duration_since(self.epoch).as_micros() as u64;
         let id = {
-            let mut c = self.collector.lock().unwrap();
+            let Ok(mut c) = self.collector.lock() else {
+                return SpanGuard {
+                    id: 0,
+                    start,
+                    collector: self.collector.clone(),
+                };
+            };
             c.start_span(name.into(), category, start_us, Some(parent_id))
         };
         SpanGuard {
@@ -157,7 +169,10 @@ impl Profiler {
 
     /// Get all collected spans.
     pub fn spans(&self) -> Vec<ProfileSpan> {
-        self.collector.lock().unwrap().spans()
+        let Ok(c) = self.collector.lock() else {
+            return vec![];
+        };
+        c.spans()
     }
 
     /// Get aggregate statistics by category.
@@ -192,12 +207,17 @@ impl Profiler {
 
     /// Reset all collected spans.
     pub fn reset(&self) {
-        self.collector.lock().unwrap().reset();
+        if let Ok(mut c) = self.collector.lock() {
+            c.reset();
+        }
     }
 
     /// Total number of recorded spans.
     pub fn span_count(&self) -> usize {
-        self.collector.lock().unwrap().span_count()
+        let Ok(c) = self.collector.lock() else {
+            return 0;
+        };
+        c.span_count()
     }
 }
 

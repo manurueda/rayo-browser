@@ -10,8 +10,8 @@ use lru::LruCache;
 /// Cached element reference.
 #[derive(Debug, Clone)]
 pub struct CachedElement {
-    /// The CDP remote object ID.
-    pub remote_object_id: String,
+    /// The resolved CSS selector string.
+    pub resolved_selector: String,
     /// The CSS selector used to find this element.
     pub selector: String,
     /// When this entry was cached (monotonic counter).
@@ -58,11 +58,11 @@ impl SelectorCache {
     }
 
     /// Cache a resolved element.
-    pub fn put(&mut self, selector: String, remote_object_id: String) {
+    pub fn put(&mut self, selector: String, resolved_selector: String) {
         self.cache.put(
             selector.clone(),
             CachedElement {
-                remote_object_id,
+                resolved_selector,
                 selector,
                 cached_at: self.generation,
             },
@@ -118,7 +118,7 @@ mod tests {
 
         let result = cache.get("div.foo");
         assert!(result.is_some());
-        assert_eq!(result.unwrap().remote_object_id, "obj-123");
+        assert_eq!(result.unwrap().resolved_selector, "obj-123");
         assert_eq!(cache.hits(), 1);
     }
 
