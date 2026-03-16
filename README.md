@@ -110,14 +110,14 @@ Real numbers from real websites. 10 iterations, 3 warmup, warm browsers.
 ### AI Agent Sessions (Real Claude Code Patterns)
 
 ```
-Wikipedia Research        rayo  5,453 tokens  █░░░░░░░░░░░░░░░░░░░  94% fewer
-                    Playwright 92,604 tokens  ████████████████████
+Wikipedia Research        rayo   5,453 tokens  █░░░░░░░░░░░░░░░░░░░  95% fewer
+                    Playwright 100,367 tokens  ████████████████████
 
-Form Fill + Submit        rayo  3,687 tokens  ███░░░░░░░░░░░░░░░░░  84% fewer
-                    Playwright 23,310 tokens  ████████████████████
+Form Fill + Submit        rayo   3,690 tokens  ███░░░░░░░░░░░░░░░░░  84% fewer
+                    Playwright  23,311 tokens  ████████████████████
 
-HN Browse + Read          rayo  6,942 tokens  ██░░░░░░░░░░░░░░░░░░  91% fewer
-                    Playwright 74,162 tokens  ████████████████████
+HN Browse + Read          rayo   6,961 tokens  ██░░░░░░░░░░░░░░░░░░  91% fewer
+                    Playwright  75,395 tokens  ████████████████████
 ```
 
 ### Page Understanding
@@ -147,12 +147,13 @@ cd bench/competitors && npx tsx src/run-benchmarks.ts
 Every operation is timed. Get results with `rayo_profile`:
 
 ```
-RAYO PROFILE (1.23s total)
-  navigation: 450ms (36.6%) | 3 ops | avg 150ms | p95 200ms
-  dom.read:   280ms (22.8%) | 8 ops | avg 35ms  | p95 50ms
-  screenshot: 180ms (14.6%) | 2 ops | avg 90ms  | p95 95ms
-  cdp.command: 200ms (16.3%) | 45 ops | avg 4.4ms| p95 8ms
-SLOWEST: goto("wikipedia.org") 200ms
+RAYO PROFILE (3379.6ms total)
+  navigation: 3379.6ms (84.4%) | 47 ops | avg 71.9ms | p95 167.0ms
+  screenshot:  241.4ms  (6.0%) | 13 ops | avg 18.6ms | p95 25.1ms
+  page_map:    140.4ms  (3.5%) | 77 ops | avg  1.8ms | p95  5.2ms
+  batch:       113.3ms  (2.8%) |  1 ops | avg 113.3ms
+  dom.mutate:  113.2ms  (2.8%) |  4 ops | avg 28.3ms | p95 34.1ms
+SLOWEST: goto(wikipedia.org) 431.2ms
 ```
 
 ## AI Speed Rules

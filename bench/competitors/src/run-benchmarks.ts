@@ -621,6 +621,21 @@ async function main() {
     console.log(`    → Token savings: ${((1 - rayoHN.tokens_consumed / pwHN.tokens_consumed) * 100).toFixed(0)}%`);
   }
 
+  // ── Rayo internal profiling ──
+  let profileData: string | null = null;
+  if (rayoAvailable) {
+    console.log("\n📊 rayo internal profile...");
+    try {
+      const prof = await rayo.callTool("rayo_profile", { format: "markdown" });
+      profileData = prof?.content?.[0]?.text || null;
+      if (profileData) {
+        console.log(profileData);
+      }
+    } catch (e: any) {
+      console.log(`  ⚠️  Could not get profile: ${e.message}`);
+    }
+  }
+
   // ── Token cost ──
   const tokenCost = {
     playwright: { tools: 22, tokens: 13200 },
@@ -634,7 +649,7 @@ async function main() {
   if (rayoAvailable) rayo.stop();
 
   // ── Generate report ──
-  const report = generateReport(allResults, sessions, tokenCost);
+  const report = generateReport(allResults, sessions, tokenCost, profileData);
   console.log("\n" + "=".repeat(60) + "\n");
   console.log(report);
 
@@ -647,6 +662,7 @@ async function main() {
     results: allResults,
     sessions,
     tokenCost,
+    rayoProfile: profileData,
   }, null, 2));
   fs.writeFileSync(`${resultsDir}/BENCHMARKS.md`, report);
   console.log(`\n✅ Results written to bench/results/`);
@@ -655,7 +671,8 @@ async function main() {
 function generateReport(
   results: BenchResult[],
   sessions: SessionResult[],
-  tokenCost: Record<string, { tools: number; tokens: number }>
+  tokenCost: Record<string, { tools: number; tokens: number }>,
+  rayoProfile: string | null,
 ): string {
   const now = new Date().toISOString().split("T")[0];
   let md = `## Benchmark Results (${now})\n\n`;
@@ -716,6 +733,13 @@ function generateReport(
   md += `|-----------|-------|--------|-------------------|\n`;
   for (const [name, c] of Object.entries(tokenCost)) {
     md += `| ${name} | ${c.tools} | ~${c.tokens.toLocaleString()} | ${((c.tokens/200000)*100).toFixed(2)}% |\n`;
+  }
+
+  // Rayo internal profile
+  if (rayoProfile) {
+    md += `\n### rayo-browser Internal Profile\n\n`;
+    md += `Where rayo spends its time (built-in profiler, always on):\n\n`;
+    md += `\`\`\`\n${rayoProfile}\n\`\`\`\n`;
   }
 
   md += `\n---\n*Warm browsers, ${ITERATIONS} iterations after ${WARMUP} warmup, median values.*\n`;

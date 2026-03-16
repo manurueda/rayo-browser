@@ -64,9 +64,13 @@ impl RayoServer {
         let mut browser_guard = self.browser.lock().await;
         if browser_guard.is_none() {
             tracing::info!("Launching Chrome browser...");
-            let browser = RayoBrowser::launch().await.map_err(|e| {
-                McpError::internal_error(format!("Failed to launch browser: {e}"), None)
-            })?;
+            let profiler = (*self.profiler).clone();
+            let browser =
+                RayoBrowser::launch_with_profiler(profiler)
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("Failed to launch browser: {e}"), None)
+                    })?;
             *browser_guard = Some(browser);
         }
 
@@ -279,11 +283,11 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_cookie",
-                "Manage browser cookies. Actions: set (inject cookies for auth), get (read cookies, optional domain filter), clear (delete cookies, optional domain filter). Optional tab_id.",
+                "Manage browser cookies. Actions: set (inject cookies), get (read, optional domain filter), clear (delete, optional domain filter), save (export to JSON file for persistence), load (import from JSON file to restore auth). Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
-                        "action": { "type": "string", "enum": ["set", "get", "clear"] },
+                        "action": { "type": "string", "enum": ["set", "get", "clear", "save", "load"] },
                         "cookies": {
                             "type": "array",
                             "description": "Cookies to set (required for 'set' action)",
@@ -303,7 +307,8 @@ impl RayoServer {
                                 "required": ["name", "value"]
                             }
                         },
-                        "domain": { "type": "string", "description": "Filter by domain (for 'get' and 'clear' actions)" },
+                        "domain": { "type": "string", "description": "Filter by domain (for 'get', 'clear', and 'save' actions)" },
+                        "path": { "type": "string", "description": "File path for save/load actions (JSON format)" },
                         "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
                     },
                     "required": ["action"]

@@ -32,6 +32,13 @@ pub struct RayoBrowser {
 }
 
 impl RayoBrowser {
+    /// Launch with a shared profiler (for MCP server integration).
+    pub async fn launch_with_profiler(profiler: Profiler) -> Result<Self, RayoError> {
+        let mut browser = Self::launch().await?;
+        browser.profiler = profiler;
+        Ok(browser)
+    }
+
     /// Launch a new headless Chrome instance.
     pub async fn launch() -> Result<Self, RayoError> {
         let user_data_dir = tempfile::tempdir()
