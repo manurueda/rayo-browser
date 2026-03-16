@@ -38,6 +38,7 @@ pub enum SpanCategory {
     Batch,
     PageMap,
     RuleEvaluation,
+    Auth,
     User,
 }
 
@@ -57,6 +58,7 @@ impl SpanCategory {
             Self::Batch => "batch",
             Self::PageMap => "page_map",
             Self::RuleEvaluation => "rule.eval",
+            Self::Auth => "auth",
             Self::User => "user",
         }
     }

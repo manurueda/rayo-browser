@@ -261,6 +261,130 @@ impl RayoPage {
         Ok(())
     }
 
+    /// Navigate to a URL with transparent auth.
+    ///
+    /// 1. Loads persisted cookies for the target domain from `~/.rayo/cookies/`
+    /// 2. Navigates to the URL
+    /// 3. Detects auth walls (login redirects or password forms)
+    /// 4. If an auth wall is detected, auto-imports cookies from the user's
+    ///    default browser, persists them, and retries navigation
+    ///
+    /// All errors in the auto-auth path are warnings, not failures.
+    /// If auto-auth fails, the agent still sees the page (just the login page).
+    #[cfg(feature = "cookie-import")]
+    pub async fn goto_with_auto_auth(
+        &self,
+        url: &str,
+    ) -> Result<crate::page_map::PageMap, RayoError> {
+        let _span = self.profiler.start_span(
+            format!("goto_with_auto_auth({})", truncate(url, 60)),
+            SpanCategory::Auth,
+        );
+
+        let domain = crate::auth::extract_domain(url).unwrap_or_default();
+
+        // Step 1: Load persisted cookies for this domain
+        if !domain.is_empty()
+            && let Some(cookies) = crate::persist::load_domain_cookies(&domain)
+        {
+            let set_cookies: Vec<SetCookie> = cookies
+                .into_iter()
+                .map(|c| SetCookie {
+                    name: c.name,
+                    value: c.value,
+                    domain: Some(c.domain),
+                    path: Some(c.path),
+                    url: None,
+                    secure: Some(c.secure),
+                    http_only: Some(c.http_only),
+                    same_site: c.same_site.as_deref().and_then(|s| match s {
+                        "Strict" => Some(SameSite::Strict),
+                        "Lax" => Some(SameSite::Lax),
+                        "None" => Some(SameSite::None),
+                        _ => None,
+                    }),
+                    expires: if c.expires > 0.0 {
+                        Some(c.expires)
+                    } else {
+                        None
+                    },
+                })
+                .collect();
+            if !set_cookies.is_empty() {
+                tracing::debug!(
+                    "Injecting {} persisted cookies for {domain}",
+                    set_cookies.len()
+                );
+                if let Err(e) = self.set_cookies(set_cookies).await {
+                    tracing::warn!("Failed to inject persisted cookies: {e}");
+                }
+            }
+        }
+
+        // Step 2: Navigate
+        self.goto(url).await?;
+
+        // Step 3: Check for auth wall
+        let final_url = self.url().await.unwrap_or_default();
+        let map = self.page_map(None).await?;
+
+        if crate::auth::is_auth_redirect(url, &final_url) || crate::auth::is_login_page(&map) {
+            tracing::info!("Auth wall detected at {final_url}, attempting cookie import");
+
+            // Step 4: Auto-detect browser and import cookies
+            if let Some(browser) =
+                crate::detect::default_browser().or_else(crate::detect::find_available_browser)
+            {
+                match crate::cookie_import::import_cookies(browser, Some(&domain), None) {
+                    Ok(imported) if !imported.is_empty() => {
+                        tracing::info!(
+                            "Imported {} cookies from {browser} for {domain}",
+                            imported.len()
+                        );
+
+                        // Inject imported cookies
+                        if let Err(e) = self.set_cookies(imported).await {
+                            tracing::warn!("Failed to inject imported cookies: {e}");
+                            return Ok(map);
+                        }
+
+                        // Retry navigation
+                        if let Err(e) = self.goto(url).await {
+                            tracing::warn!("Retry navigation failed: {e}");
+                            return Ok(map);
+                        }
+
+                        // Persist cookies for next session
+                        if let Ok(cookie_infos) = self.get_cookies().await {
+                            let domain_cookies: Vec<_> = cookie_infos
+                                .into_iter()
+                                .filter(|c| c.domain.contains(&domain))
+                                .collect();
+                            if let Err(e) =
+                                crate::persist::save_domain_cookies(&domain, &domain_cookies)
+                            {
+                                tracing::warn!("Failed to persist cookies: {e}");
+                            }
+                        }
+
+                        let retry_map = self.page_map(None).await?;
+                        return Ok(retry_map);
+                    }
+                    Ok(_) => {
+                        tracing::debug!("No cookies found in {browser} for {domain}");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Auto cookie import from {browser} failed: {e}");
+                    }
+                }
+            } else {
+                tracing::debug!("No browser detected for cookie import");
+            }
+        }
+
+        Ok(map)
+    }
+
     /// Internal goto without cache invalidation — used by batch executor
     /// to defer all invalidation to a single pass at the end.
     async fn goto_raw(&self, url: &str) -> Result<(), RayoError> {

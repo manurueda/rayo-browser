@@ -16,14 +16,18 @@
 //! └──────────────┘
 //! ```
 
+pub mod auth;
 pub mod batch;
 pub mod browser;
 pub mod cookie;
 #[cfg(feature = "cookie-import")]
 pub mod cookie_import;
+#[cfg(feature = "cookie-import")]
+pub mod detect;
 pub mod error;
 pub mod network;
 pub mod page_map;
+pub mod persist;
 pub mod selector_cache;
 pub mod tab_manager;
 

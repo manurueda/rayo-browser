@@ -39,7 +39,10 @@ pub async fn handle_navigate(
                 .and_then(|v| v.as_str())
                 .unwrap_or("load");
 
-            page.goto(url).await.map_err(internal_err)?;
+            // Use transparent auto-auth: detects auth walls, imports cookies
+            // from the user's real browser, and retries navigation if needed.
+            // Zero overhead when no auth wall is detected.
+            let map = page.goto_with_auto_auth(url).await.map_err(internal_err)?;
 
             // Handle wait_until conditions beyond the default page load.
             // "load" and "domcontentloaded" are already satisfied by goto()
@@ -54,7 +57,12 @@ pub async fn handle_navigate(
 
             // Auto-return page_map after navigation (delight feature)
             // page_map already contains title and URL — no separate CDP calls needed
-            let map = page.page_map(None).await.map_err(internal_err)?;
+            // If we waited for networkidle, re-fetch the page_map since it may have changed.
+            let map = if wait_until == "networkidle" {
+                page.page_map(None).await.map_err(internal_err)?
+            } else {
+                map
+            };
             let json = serde_json::to_string(&map).unwrap_or_default();
             let waited = if wait_until != "load" {
                 format!(" (waited for {wait_until})")
