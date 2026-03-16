@@ -1,8 +1,8 @@
 # ⚡ rayo-browser
 
-**Your AI agent is mass 95% of its context window on screenshots. Stop.**
+**The fastest MCP browser tool.** Rust. 95% fewer tokens. 17x faster workflows.
 
-⚡ rayo is an MCP browser tool built in Rust. It replaces screenshots with page maps, batches actions into single calls, and uses 9x less context than Playwright MCP. Same browser, radically less waste.
+Your AI agent is wasting its context window on screenshots. ⚡ rayo replaces screenshots with page maps, batches actions into single calls, and uses 9x less context than Playwright MCP. Same browser, radically less waste.
 
 ```
                               Speed                    Tokens
@@ -123,9 +123,9 @@ Navigation is network-bound. All three tools are the same speed — it's the sam
 ### Context window overhead
 
 ```
-  ⚡ rayo           ~1,500 tokens  ██░░░░░░░░░░░░░░░░░░  0.75% of 200k
-  Puppeteer MCP     ~4,500 tokens  ███████░░░░░░░░░░░░░  2.25% of 200k
-  Playwright MCP   ~13,200 tokens  ████████████████████  6.60% of 200k
+  ⚡ rayo            ~1,500 tokens  ██░░░░░░░░░░░░░░░░░░  0.75% of 200k
+  Puppeteer MCP      ~4,500 tokens  ███████░░░░░░░░░░░░░  2.25% of 200k
+  Playwright MCP    ~13,200 tokens  ████████████████████  6.60% of 200k
 ```
 
 These are the tool definitions your agent loads before it does anything. Playwright MCP's 22 tool descriptions eat 6.6% of a 200k context window on arrival.
