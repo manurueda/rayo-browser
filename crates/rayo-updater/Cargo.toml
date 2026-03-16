@@ -1,0 +1,20 @@
+[package]
+name = "rayo-updater"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Self-update support for rayo-mcp via cargo-dist and axoupdater"
+
+[dependencies]
+axoupdater = "0.10"
+semver = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+fs2 = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt", "macros"] }

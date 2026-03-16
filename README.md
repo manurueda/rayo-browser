@@ -30,19 +30,25 @@ Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-i
 
 **Claude Code** — paste this:
 
-> Install rayo-browser as my browser automation tool: run `cargo install rayo-mcp` then `claude mcp add rayo -- rayo-mcp`. Then add a browser automation section to CLAUDE.md that says to always use rayo MCP tools for all browser automation instead of Playwright or Puppeteer, prefer `rayo_observe` with `page_map` mode over screenshots, and use `rayo_batch` to combine 3+ sequential actions into a single call. Tell me to restart Claude Code so the MCP server loads.
+> Install rayo-browser as my browser automation tool: run `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh` then `claude mcp add rayo -- rayo-mcp`. Then add a browser automation section to CLAUDE.md that says to always use rayo MCP tools for all browser automation instead of Playwright or Puppeteer, prefer `rayo_observe` with `page_map` mode over screenshots, and use `rayo_batch` to combine 3+ sequential actions into a single call. Tell me to restart Claude Code so the MCP server loads.
 
-That's it. One paste, Claude Code does the rest — installs, configures, and tells you to restart.
+That's it. One paste, Claude Code does the rest — installs, configures, and tells you to restart. ⚡ rayo auto-updates in the background, so you always have the latest version.
 
 **Cursor / Windsurf / any MCP client:**
 
 ```bash
+# Pre-built binary (fastest)
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh
+
+# Or build from source
 cargo install rayo-mcp
 ```
 
 ```json
 { "mcpServers": { "rayo": { "command": "rayo-mcp" } } }
 ```
+
+> **Auto-updates:** ⚡ rayo checks for updates in the background and self-updates on next restart. Disable with `RAYO_NO_UPDATE=1`.
 
 ## 💡 The problem
 
