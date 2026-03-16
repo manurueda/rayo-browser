@@ -327,6 +327,104 @@ pub async fn handle_cookie(
                 )]))
             }
         }
+        "save" => {
+            let path = params
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| McpError::invalid_params("path is required for save", None))?;
+            let cookies = page.get_cookies().await.map_err(internal_err)?;
+            let domain_filter = params.get("domain").and_then(|v| v.as_str());
+            let filtered: Vec<_> = if let Some(domain) = domain_filter {
+                cookies
+                    .into_iter()
+                    .filter(|c| c.domain.contains(domain))
+                    .collect()
+            } else {
+                cookies
+            };
+            let count = filtered.len();
+            let json = serde_json::to_string_pretty(&filtered).map_err(|e| {
+                McpError::internal_error(format!("Failed to serialize cookies: {e}"), None)
+            })?;
+            std::fs::write(path, &json).map_err(|e| {
+                McpError::internal_error(format!("Failed to write {path}: {e}"), None)
+            })?;
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Saved {count} cookie(s) to {path}"
+            ))]))
+        }
+        "import" => {
+            let browser_name = params
+                .get("browser")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| McpError::invalid_params("browser is required for import", None))?;
+
+            let browser = rayo_core::cookie_import::BrowserType::from_name(browser_name)
+                .ok_or_else(|| {
+                    McpError::invalid_params(
+                        format!(
+                            "Unknown browser: {browser_name}. \
+                             Supported: chrome, arc, brave, edge, chromium"
+                        ),
+                        None,
+                    )
+                })?;
+
+            let domain = params.get("domain").and_then(|v| v.as_str());
+            let profile = params.get("profile").and_then(|v| v.as_str());
+
+            let imported = rayo_core::cookie_import::import_cookies(browser, domain, profile)
+                .map_err(internal_err)?;
+
+            let count = imported.len();
+            page.set_cookies(imported).await.map_err(internal_err)?;
+
+            let domain_msg = domain
+                .map(|d| format!(" for domain '{d}'"))
+                .unwrap_or_default();
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Imported {count} cookie(s) from {browser_name}{domain_msg}"
+            ))]))
+        }
+        "load" => {
+            let path = params
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| McpError::invalid_params("path is required for load", None))?;
+            let data = std::fs::read_to_string(path).map_err(|e| {
+                McpError::internal_error(format!("Failed to read {path}: {e}"), None)
+            })?;
+            let cookie_infos: Vec<rayo_core::CookieInfo> = serde_json::from_str(&data)
+                .map_err(|e| McpError::invalid_params(format!("Invalid cookie file: {e}"), None))?;
+            let cookies: Vec<rayo_core::SetCookie> = cookie_infos
+                .into_iter()
+                .map(|c| rayo_core::SetCookie {
+                    name: c.name,
+                    value: c.value,
+                    domain: Some(c.domain),
+                    path: Some(c.path),
+                    url: None,
+                    secure: Some(c.secure),
+                    http_only: Some(c.http_only),
+                    same_site: c.same_site.as_deref().and_then(|s| match s {
+                        "Strict" => Some(rayo_core::SameSite::Strict),
+                        "Lax" => Some(rayo_core::SameSite::Lax),
+                        "None" => Some(rayo_core::SameSite::None),
+                        _ => None,
+                    }),
+                    expires: if c.expires > 0.0 {
+                        Some(c.expires)
+                    } else {
+                        None
+                    },
+                })
+                .collect();
+            let count = cookies.len();
+            page.set_cookies(cookies).await.map_err(internal_err)?;
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Loaded {count} cookie(s) from {path}"
+            ))]))
+        }
         _ => Err(McpError::invalid_params(
             format!("Unknown cookie action: {action}"),
             None,

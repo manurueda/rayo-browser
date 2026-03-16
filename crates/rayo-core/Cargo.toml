@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description = "Core AI-native browser automation layer for rayo-browser"
 
+[features]
+default = []
+cookie-import = ["dep:rusqlite", "dep:aes", "dep:pbkdf2", "dep:sha1", "dep:hmac"]
+
 [dependencies]
 chromiumoxide = { workspace = true }
 tokio = { workspace = true }
@@ -19,6 +23,13 @@ futures = { workspace = true }
 rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
 base64 = "0.22"
 tempfile = "3"
+
+# cookie-import feature deps
+rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+aes = { version = "0.8", optional = true }
+pbkdf2 = { version = "0.12", optional = true }
+sha1 = { version = "0.10", optional = true }
+hmac = { version = "0.12", optional = true }
 
 [dev-dependencies]
 which = "6"
