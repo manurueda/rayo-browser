@@ -1510,9 +1510,16 @@ fn timestamp_now_ms() -> f64 {
 /// Convert rayo-owned SetCookie to chromiumoxide CookieParam.
 fn to_cdp_cookie(c: SetCookie) -> CookieParam {
     let mut cp = CookieParam::new(c.name, c.value);
-    cp.domain = c.domain;
+    cp.domain = c.domain.clone();
     cp.path = c.path;
-    cp.url = c.url;
+    // CDP requires either url or domain. If url is missing, synthesize from domain.
+    cp.url = c.url.or_else(|| {
+        c.domain.as_ref().map(|d| {
+            let d = d.trim_start_matches('.');
+            let scheme = if c.secure == Some(true) { "https" } else { "http" };
+            format!("{scheme}://{d}/")
+        })
+    });
     cp.secure = c.secure;
     cp.http_only = c.http_only;
     cp.same_site = c.same_site.map(|s| match s {
