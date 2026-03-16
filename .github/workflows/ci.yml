@@ -53,8 +53,6 @@ jobs:
 
   benchmarks:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-
     steps:
       - uses: actions/checkout@v4
 
@@ -71,4 +69,4 @@ jobs:
           key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run benchmarks
-        run: cargo bench --bench selector_cache --bench page_map
+        run: cargo bench --bench selector_cache --bench page_map --bench profiler --bench rules
