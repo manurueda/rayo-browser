@@ -15,8 +15,14 @@ pub enum RayoError {
     CookieError(String),
 
     #[error(transparent)]
-    Chromiumoxide(#[from] chromiumoxide::error::CdpError),
+    Chromiumoxide(Box<chromiumoxide::error::CdpError>),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+impl From<chromiumoxide::error::CdpError> for RayoError {
+    fn from(e: chromiumoxide::error::CdpError) -> Self {
+        RayoError::Chromiumoxide(Box::new(e))
+    }
 }

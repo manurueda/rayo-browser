@@ -27,6 +27,7 @@ fn make_page_map(n_elements: usize) -> PageMap {
             role: None,
             href: None,
             selector: format!("input[name='field_{i}']"),
+            state: vec![],
         })
         .collect();
 
@@ -36,6 +37,8 @@ fn make_page_map(n_elements: usize) -> PageMap {
         interactive,
         headings: vec!["Test Form".into(), "Personal Info".into()],
         text_summary: "A test form with many fields.".into(),
+        total_interactive: None,
+        truncated: None,
     }
 }
 

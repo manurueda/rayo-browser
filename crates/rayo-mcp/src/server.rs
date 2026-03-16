@@ -230,12 +230,13 @@ impl RayoServer {
         vec![
             Tool::new(
                 "rayo_navigate",
-                "Navigate the browser. Actions: goto (requires url), reload, back, forward. Tab actions: new_tab (optional url), close_tab (optional tab_id), list_tabs, switch_tab (requires tab_id). Returns page_map after goto.",
+                "Navigate the browser. Actions: goto (requires url, optional wait_until), reload, back, forward. Tab actions: new_tab (optional url), close_tab (optional tab_id), list_tabs, switch_tab (requires tab_id). Returns page_map after goto.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
                         "action": { "type": "string", "enum": ["goto", "reload", "back", "forward", "new_tab", "close_tab", "list_tabs", "switch_tab"] },
                         "url": { "type": "string", "description": "URL to navigate to (required for goto, optional for new_tab)" },
+                        "wait_until": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle"], "description": "Wait condition for navigation (default: load)" },
                         "tab_id": { "type": "string", "description": "Tab ID for tab operations" }
                     },
                     "required": ["action"]
@@ -257,11 +258,11 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_interact",
-                "Interact with an element. Use id from page_map or CSS selector. Actions: click, type (requires value), press (requires value — key name like \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\"), select (requires value), scroll. Optional tab_id.",
+                "Interact with an element. Use id from page_map or CSS selector. Actions: click, hover (mouse move without click — triggers dropdowns/tooltips), type (requires value), press (requires value — key name like \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\"), select (requires value), scroll. Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
-                        "action": { "type": "string", "enum": ["click", "type", "press", "select", "scroll"] },
+                        "action": { "type": "string", "enum": ["click", "hover", "type", "press", "select", "scroll"] },
                         "id": { "type": "integer", "description": "Element ID from page_map" },
                         "selector": { "type": "string", "description": "CSS selector (alternative to id)" },
                         "value": { "type": "string", "description": "Text to type or option to select" },
@@ -281,7 +282,7 @@ impl RayoServer {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "action": { "type": "string", "enum": ["click", "type", "press", "select", "goto", "screenshot", "wait_for", "scroll"] },
+                                    "action": { "type": "string", "enum": ["click", "hover", "type", "press", "select", "goto", "screenshot", "wait_for", "scroll"] },
                                     "id": { "type": "integer" },
                                     "selector": { "type": "string" },
                                     "value": { "type": "string" },
@@ -446,11 +447,15 @@ impl ServerHandler for RayoServer {
                     tools::handle_observe(page, &params, &self.rules).await
                 }
                 "rayo_interact" => {
+                    // Track sequential actions for batch opportunity detection
+                    self.rules.lock().await.check_batch_opportunity();
                     let tabs = self.tabs.lock().await;
                     let page = Self::resolve_page(&tabs, tab_id).await?;
                     tools::handle_interact(page, &params, &self.rules).await
                 }
                 "rayo_batch" => {
+                    // Reset sequential counter — the agent is batching correctly
+                    self.rules.lock().await.reset_sequential_count();
                     let tabs = self.tabs.lock().await;
                     let page = Self::resolve_page(&tabs, tab_id).await?;
                     tools::handle_batch(page, &params).await
@@ -509,6 +514,7 @@ impl ServerHandler for RayoServer {
 
 pub async fn run() -> Result<()> {
     let server = RayoServer::new();
+    let browser_handle = Arc::clone(&server.browser);
     let transport = rmcp::transport::io::stdio();
 
     tracing::info!(
@@ -521,5 +527,13 @@ pub async fn run() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to start MCP server: {e}"))?;
 
     service.waiting().await?;
+
+    // Gracefully shut down Chrome after the MCP session ends
+    if let Some(browser) = browser_handle.lock().await.take() {
+        tracing::info!("Shutting down Chrome gracefully...");
+        browser.close().await;
+        tracing::info!("Chrome shut down");
+    }
+
     Ok(())
 }

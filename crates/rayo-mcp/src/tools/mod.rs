@@ -34,25 +34,41 @@ pub async fn handle_navigate(
                 .get("url")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| McpError::invalid_params("url is required for goto", None))?;
+            let wait_until = params
+                .get("wait_until")
+                .and_then(|v| v.as_str())
+                .unwrap_or("load");
+
             page.goto(url).await.map_err(internal_err)?;
 
-            // Auto-return page_map after navigation (delight feature)
-            // page_map already contains title and URL, so no separate CDP calls needed
-            if let Ok(map) = page.page_map(None).await {
-                let json = serde_json::to_string(&map).unwrap_or_default();
-                let content = vec![
-                    Content::text(format!("Navigated to {}\nTitle: {}", map.url, map.title)),
-                    Content::text(format!("\n--- page_map ---\n{json}")),
-                ];
-                Ok(CallToolResult::success(content))
-            } else {
-                // Fallback if page_map fails
-                let current_url = page.url().await.unwrap_or_default();
-                let title = page.title().await.unwrap_or_default();
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Navigated to {current_url}\nTitle: {title}"
-                ))]))
+            // Handle wait_until conditions beyond the default page load.
+            // "load" and "domcontentloaded" are already satisfied by goto()
+            // which waits for the page load event.
+            if wait_until == "networkidle" {
+                // Wait for 500ms of no new network activity.
+                // Uses Performance API to detect ongoing resource fetches.
+                page.wait_for_network_idle(500, 5000)
+                    .await
+                    .map_err(internal_err)?;
             }
+
+            // Auto-return page_map after navigation (delight feature)
+            // page_map already contains title and URL — no separate CDP calls needed
+            let map = page.page_map(None).await.map_err(internal_err)?;
+            let json = serde_json::to_string(&map).unwrap_or_default();
+            let waited = if wait_until != "load" {
+                format!(" (waited for {wait_until})")
+            } else {
+                String::new()
+            };
+            let content = vec![
+                Content::text(format!(
+                    "Navigated to {}\nTitle: {}{}",
+                    map.url, map.title, waited
+                )),
+                Content::text(format!("\n--- page_map ---\n{json}")),
+            ];
+            Ok(CallToolResult::success(content))
         }
         "reload" => {
             page.reload().await.map_err(internal_err)?;
@@ -131,16 +147,26 @@ pub async fn handle_observe(
             Ok(CallToolResult::success(vec![Content::text(text)]))
         }
         "screenshot" => {
-            rules.lock().await.check_screenshot();
+            let mut engine = rules.lock().await;
+            engine.check_screenshot();
+            engine.check_page_map_preference();
+            let (screenshots_remaining, reset_in_ms) = engine.screenshot_rate_info();
+            drop(engine);
             let full_page = params
                 .get("full_page")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let b64 = page.screenshot(full_page).await.map_err(internal_err)?;
-            Ok(CallToolResult::success(vec![Content::image(
-                b64,
-                RayoPage::screenshot_mime(),
-            )]))
+            let meta = serde_json::json!({
+                "_rayo": {
+                    "screenshots_remaining": screenshots_remaining,
+                    "reset_in_ms": reset_in_ms
+                }
+            });
+            Ok(CallToolResult::success(vec![
+                Content::image(b64, RayoPage::screenshot_mime()),
+                Content::text(serde_json::to_string(&meta).unwrap_or_default()),
+            ]))
         }
         _ => Err(McpError::invalid_params(
             format!("Unknown observe mode: {mode}"),
@@ -175,6 +201,10 @@ pub async fn handle_interact(
         "click" => {
             page.click(selector, id).await.map_err(internal_err)?;
             "Clicked".to_string()
+        }
+        "hover" => {
+            page.hover(selector, id).await.map_err(internal_err)?;
+            "Hovered".to_string()
         }
         "type" => {
             let text = value
@@ -371,7 +401,7 @@ pub async fn handle_cookie(
                 cookies
             };
             let count = filtered.len();
-            let json = serde_json::to_string_pretty(&filtered).map_err(|e| {
+            let json = serde_json::to_string(&filtered).map_err(|e| {
                 McpError::internal_error(format!("Failed to serialize cookies: {e}"), None)
             })?;
             std::fs::write(path, &json).map_err(|e| {

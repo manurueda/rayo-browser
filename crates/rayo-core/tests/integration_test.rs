@@ -127,11 +127,11 @@ async fn test_browser_operations() {
 
     // --- Test: wait for selector ---
     // h1 already exists on index.html
-    page.wait_for_selector("h1", 5000).await.unwrap();
+    page.wait_for_selector("h1", 5000, false).await.unwrap();
     eprintln!("  PASS: wait_for_selector");
 
     // --- Test: wait for selector timeout ---
-    let timeout_result = page.wait_for_selector("#nonexistent-xyz", 500).await;
+    let timeout_result = page.wait_for_selector("#nonexistent-xyz", 500, false).await;
     assert!(
         timeout_result.is_err(),
         "Should timeout for nonexistent selector"
@@ -313,4 +313,291 @@ async fn test_browser_operations() {
     eprintln!("  PASS: profiler ({} spans recorded)", spans.len());
 
     eprintln!("ALL INTEGRATION TESTS PASSED");
+}
+
+/// Test that page_map truncation metadata is correct on a page with 100+ elements.
+/// The EXTRACT_PAGE_MAP_JS caps at MAX_ELEMENTS=50, so total_interactive and truncated
+/// should be set when the page has more than 50 interactive elements.
+#[tokio::test]
+async fn test_page_map_truncation() {
+    if !chrome_available() {
+        eprintln!("SKIP: Chrome not available");
+        return;
+    }
+
+    let base_url = start_fixture_server().await;
+    let browser = RayoBrowser::launch()
+        .await
+        .expect("Failed to launch browser");
+    let page = browser.new_page().await.expect("Failed to create page");
+
+    page.goto(&format!("{base_url}/many_elements.html"))
+        .await
+        .unwrap();
+
+    let map = page.page_map(None).await.unwrap();
+
+    assert_eq!(
+        map.interactive.len(),
+        50,
+        "Should cap at 50 interactive elements, got: {}",
+        map.interactive.len()
+    );
+    assert!(
+        map.truncated == Some(true),
+        "truncated should be true when page has >50 elements"
+    );
+    assert!(
+        map.total_interactive.is_some(),
+        "total_interactive should be set when truncated"
+    );
+    let total = map.total_interactive.unwrap();
+    assert!(total > 50, "total_interactive should be >50, got: {total}");
+    eprintln!(
+        "  PASS: test_page_map_truncation (interactive={}, total={total}, truncated=true)",
+        map.interactive.len()
+    );
+}
+
+/// Test that disabled, readonly, and required element states are detected in page_map.
+#[tokio::test]
+async fn test_element_state_detection() {
+    if !chrome_available() {
+        eprintln!("SKIP: Chrome not available");
+        return;
+    }
+
+    let base_url = start_fixture_server().await;
+    let browser = RayoBrowser::launch()
+        .await
+        .expect("Failed to launch browser");
+    let page = browser.new_page().await.expect("Failed to create page");
+
+    page.goto(&format!("{base_url}/form.html")).await.unwrap();
+
+    let map = page.page_map(None).await.unwrap();
+
+    // Check readonly element
+    let readonly_el = map
+        .interactive
+        .iter()
+        .find(|e| e.selector.contains("readonly-input"));
+    assert!(
+        readonly_el.is_some(),
+        "Should find readonly-input in page map"
+    );
+    assert!(
+        readonly_el.unwrap().state.contains(&"readonly".to_string()),
+        "readonly-input should have 'readonly' state, got: {:?}",
+        readonly_el.unwrap().state
+    );
+
+    // Check disabled element
+    let disabled_el = map
+        .interactive
+        .iter()
+        .find(|e| e.selector.contains("disabled-input"));
+    assert!(
+        disabled_el.is_some(),
+        "Should find disabled-input in page map"
+    );
+    assert!(
+        disabled_el.unwrap().state.contains(&"disabled".to_string()),
+        "disabled-input should have 'disabled' state, got: {:?}",
+        disabled_el.unwrap().state
+    );
+
+    // Check required element
+    let required_el = map
+        .interactive
+        .iter()
+        .find(|e| e.selector.contains("required-input"));
+    assert!(
+        required_el.is_some(),
+        "Should find required-input in page map"
+    );
+    assert!(
+        required_el.unwrap().state.contains(&"required".to_string()),
+        "required-input should have 'required' state, got: {:?}",
+        required_el.unwrap().state
+    );
+
+    eprintln!("  PASS: test_element_state_detection");
+}
+
+/// Test that clicking a non-existent element returns RayoError::ElementNotFound.
+#[tokio::test]
+async fn test_click_nonexistent_element() {
+    if !chrome_available() {
+        eprintln!("SKIP: Chrome not available");
+        return;
+    }
+
+    let base_url = start_fixture_server().await;
+    let browser = RayoBrowser::launch()
+        .await
+        .expect("Failed to launch browser");
+    let page = browser.new_page().await.expect("Failed to create page");
+
+    page.goto(&format!("{base_url}/index.html")).await.unwrap();
+
+    let result = page.click(Some("#does-not-exist-at-all-xyz"), None).await;
+    assert!(result.is_err(), "Clicking non-existent element should fail");
+    let err = result.unwrap_err();
+    match &err {
+        rayo_core::RayoError::ElementNotFound { selector } => {
+            assert!(
+                selector.contains("does-not-exist-at-all-xyz"),
+                "Error should reference the selector, got: {selector}"
+            );
+        }
+        other => {
+            panic!("Expected RayoError::ElementNotFound, got: {other:?}");
+        }
+    }
+    eprintln!("  PASS: test_click_nonexistent_element");
+}
+
+/// Test that a minimal page produces a page_map with an empty interactive array.
+#[tokio::test]
+async fn test_empty_page_map() {
+    if !chrome_available() {
+        eprintln!("SKIP: Chrome not available");
+        return;
+    }
+
+    let browser = RayoBrowser::launch()
+        .await
+        .expect("Failed to launch browser");
+    let page = browser.new_page().await.expect("Failed to create page");
+
+    // Navigate to about:blank — no interactive elements
+    page.goto("about:blank").await.unwrap();
+
+    let map = page.page_map(None).await.unwrap();
+    assert!(
+        map.interactive.is_empty(),
+        "about:blank should have no interactive elements, got: {}",
+        map.interactive.len()
+    );
+    assert!(
+        map.truncated.is_none() || map.truncated == Some(false),
+        "about:blank should not be truncated"
+    );
+    eprintln!("  PASS: test_empty_page_map");
+}
+
+/// Test batch execution with a mix of valid and invalid actions.
+/// With abort_on_failure=false, all actions should run and we should see
+/// both succeeded > 0 and failed > 0.
+#[tokio::test]
+async fn test_batch_mixed_results() {
+    if !chrome_available() {
+        eprintln!("SKIP: Chrome not available");
+        return;
+    }
+
+    let base_url = start_fixture_server().await;
+    let browser = RayoBrowser::launch()
+        .await
+        .expect("Failed to launch browser");
+    let page = browser.new_page().await.expect("Failed to create page");
+
+    page.goto(&format!("{base_url}/index.html")).await.unwrap();
+
+    let actions = vec![
+        // Valid: take a screenshot (always works)
+        BatchAction::Screenshot { full_page: false },
+        // Invalid: click a non-existent element
+        BatchAction::Click {
+            target: rayo_core::batch::ActionTarget::Selector {
+                selector: "#nonexistent-element-xyz".to_string(),
+            },
+        },
+        // Valid: another screenshot
+        BatchAction::Screenshot { full_page: false },
+    ];
+
+    let batch_result = page.execute_batch(actions, false).await.unwrap();
+    assert!(
+        batch_result.succeeded > 0,
+        "Should have at least 1 succeeded action"
+    );
+    assert!(
+        batch_result.failed > 0,
+        "Should have at least 1 failed action"
+    );
+    assert_eq!(batch_result.succeeded, 2, "2 screenshots should succeed");
+    assert_eq!(batch_result.failed, 1, "1 click on nonexistent should fail");
+    assert!(!batch_result.all_succeeded());
+
+    // Verify individual results
+    assert!(
+        batch_result.results[0].success,
+        "First screenshot should succeed"
+    );
+    assert!(
+        !batch_result.results[1].success,
+        "Click nonexistent should fail"
+    );
+    assert!(
+        batch_result.results[1].error.is_some(),
+        "Failed action should have error message"
+    );
+    assert!(
+        batch_result.results[2].success,
+        "Third action (screenshot) should still run and succeed"
+    );
+
+    eprintln!(
+        "  PASS: test_batch_mixed_results (succeeded={}, failed={})",
+        batch_result.succeeded, batch_result.failed
+    );
+}
+
+/// Test that wait_for_selector with visible=true times out on a hidden element.
+#[tokio::test]
+async fn test_wait_for_visibility() {
+    if !chrome_available() {
+        eprintln!("SKIP: Chrome not available");
+        return;
+    }
+
+    let base_url = start_fixture_server().await;
+    let browser = RayoBrowser::launch()
+        .await
+        .expect("Failed to launch browser");
+    let page = browser.new_page().await.expect("Failed to create page");
+
+    page.goto(&format!("{base_url}/index.html")).await.unwrap();
+
+    // Inject a hidden element via JS
+    page.evaluate(
+        r#"(() => {
+            const el = document.createElement('div');
+            el.id = 'hidden-element';
+            el.style.display = 'none';
+            el.textContent = 'I am hidden';
+            document.body.appendChild(el);
+        })()"#,
+    )
+    .await
+    .unwrap();
+
+    // The element exists in DOM but is not visible.
+    // wait_for_selector with visible=true and a short timeout should fail.
+    let result = page.wait_for_selector("#hidden-element", 500, true).await;
+    assert!(
+        result.is_err(),
+        "Should timeout waiting for a hidden element with visible=true"
+    );
+
+    // But with visible=false it should succeed (element exists in DOM).
+    let result = page.wait_for_selector("#hidden-element", 500, false).await;
+    assert!(
+        result.is_ok(),
+        "Should find hidden element with visible=false (DOM presence only)"
+    );
+
+    eprintln!("  PASS: test_wait_for_visibility");
 }

@@ -1,5 +1,6 @@
 //! Ring buffer span collector with bounded memory.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::{ProfileSpan, SpanCategory};
@@ -8,11 +9,13 @@ use crate::{ProfileSpan, SpanCategory};
 ///
 /// Fixed capacity prevents unbounded memory growth.
 /// When full, oldest spans are evicted.
+/// Uses a HashMap index for O(1) span lookup by ID.
 pub struct Collector {
     spans: Vec<Option<ProfileSpan>>,
     write_idx: usize,
     next_id: u64,
     count: usize,
+    span_index: HashMap<u64, usize>,
 }
 
 impl Collector {
@@ -22,6 +25,7 @@ impl Collector {
             write_idx: 0,
             next_id: 1,
             count: 0,
+            span_index: HashMap::new(),
         }
     }
 
@@ -46,7 +50,13 @@ impl Collector {
             metadata: serde_json::Value::Null,
         };
 
+        // Remove evicted span from index if slot is being overwritten
+        if let Some(old_span) = &self.spans[self.write_idx] {
+            self.span_index.remove(&old_span.id);
+        }
+
         self.spans[self.write_idx] = Some(span);
+        self.span_index.insert(id, self.write_idx);
         self.write_idx = (self.write_idx + 1) % self.spans.len();
         if self.count < self.spans.len() {
             self.count += 1;
@@ -56,17 +66,14 @@ impl Collector {
     }
 
     /// End a span by recording its duration.
+    /// Uses HashMap index for O(1) lookup instead of linear search.
     pub fn end_span(&mut self, id: u64, duration: Duration) {
         let duration_us = duration.as_micros() as u64;
-        // Search backwards from write position (most recent spans)
-        for i in (0..self.spans.len()).rev() {
-            let idx = (self.write_idx + i) % self.spans.len();
-            if let Some(span) = &mut self.spans[idx]
-                && span.id == id
-            {
+        if let Some(&idx) = self.span_index.get(&id) {
+            if let Some(span) = &mut self.spans[idx] {
                 span.duration_us = Some(duration_us);
-                return;
             }
+            self.span_index.remove(&id);
         }
     }
 
@@ -92,6 +99,7 @@ impl Collector {
         }
         self.write_idx = 0;
         self.count = 0;
+        self.span_index.clear();
     }
 }
 

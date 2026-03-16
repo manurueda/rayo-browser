@@ -51,6 +51,9 @@ jobs:
       - name: Integration tests
         run: cargo test --workspace -- --test-threads=1
 
+      - name: Audit dependencies
+        run: cargo install cargo-audit --locked && cargo audit
+
   benchmarks:
     runs-on: ubuntu-latest
     steps:

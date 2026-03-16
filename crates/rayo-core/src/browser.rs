@@ -192,10 +192,48 @@ impl RayoBrowser {
     pub fn profiler(&self) -> &Profiler {
         &self.profiler
     }
+
+    /// Gracefully close the browser and clean up.
+    ///
+    /// Sends a CDP close command to Chrome, waits up to 5 seconds for the
+    /// process to exit, then force-kills if needed. Also waits for the
+    /// handler task to finish so no background work is left running.
+    ///
+    /// Prefer this over just dropping `RayoBrowser` when you have an async
+    /// context (e.g. MCP server shutdown).
+    pub async fn close(mut self) {
+        // 1. Ask Chrome to close gracefully via CDP
+        if let Err(e) = self.browser.close().await {
+            tracing::warn!("CDP close failed: {e}, will force-kill");
+        }
+
+        // 2. Wait for Chrome process to exit (up to 5s)
+        let wait_result =
+            tokio::time::timeout(std::time::Duration::from_secs(5), self.browser.wait()).await;
+
+        match wait_result {
+            Ok(Ok(_)) => tracing::debug!("Chrome exited cleanly"),
+            Ok(Err(e)) => {
+                tracing::warn!("Chrome wait error: {e}, force-killing");
+                let _ = self.browser.kill().await;
+            }
+            Err(_) => {
+                tracing::warn!("Chrome did not exit within 5s, force-killing");
+                let _ = self.browser.kill().await;
+            }
+        }
+
+        // 3. Stop the handler task
+        self.handler_task.abort();
+        let _ = (&mut self.handler_task).await;
+    }
 }
 
 impl Drop for RayoBrowser {
     fn drop(&mut self) {
+        // Safety net: abort the handler task if close() was not called.
+        // This is the best we can do without an async context.
+        // chromiumoxide's own Drop will kill_on_drop the Chrome process.
         self.handler_task.abort();
     }
 }
@@ -218,14 +256,19 @@ impl RayoPage {
 
     /// Navigate to a URL.
     pub async fn goto(&self, url: &str) -> Result<(), RayoError> {
+        self.goto_raw(url).await?;
+        self.invalidate_after_mutation().await;
+        Ok(())
+    }
+
+    /// Internal goto without cache invalidation — used by batch executor
+    /// to defer all invalidation to a single pass at the end.
+    async fn goto_raw(&self, url: &str) -> Result<(), RayoError> {
         let _span = self.profiler.start_span(
             format!("goto({})", truncate(url, 60)),
             SpanCategory::Navigation,
         );
         self.page.goto(url).await?;
-        // Invalidate caches on navigation
-        self.selector_cache.lock().await.invalidate();
-        *self.page_map_cache.lock().await = None;
         Ok(())
     }
 
@@ -332,9 +375,20 @@ impl RayoPage {
             }}
         }}
 
+        // Element state
+        const state = [];
+        if (el.disabled) state.push('disabled');
+        if (el.readOnly) state.push('readonly');
+        if (el.required) state.push('required');
+        if (el.checked) state.push('checked');
+        if (el.hidden || (el.type === 'hidden')) state.push('hidden');
+        if (state.length > 0) item.state = state;
+
         interactive.push(item);
         count++;
     }});
+
+    const totalInteractive = elements.length;
 
     const headings = Array.from(root.querySelectorAll('h1, h2, h3'))
         .map(h => h.textContent.trim())
@@ -359,6 +413,8 @@ impl RayoPage {
         interactive: interactive,
         headings: headings,
         text_summary: textSummary || document.title,
+        total_interactive: totalInteractive > MAX_ELEMENTS ? totalInteractive : undefined,
+        truncated: totalInteractive > MAX_ELEMENTS ? true : undefined,
     }};
 }})()"#,
                     sel_json = sel_json,
@@ -487,9 +543,56 @@ impl RayoPage {
         Ok(())
     }
 
+    /// Hover over an element by selector or page map ID.
+    /// Uses CDP Input.dispatchMouseEvent via chromiumoxide for real mouse events.
+    /// Useful for triggering dropdown menus and tooltips.
+    pub async fn hover(&self, selector: Option<&str>, id: Option<usize>) -> Result<(), RayoError> {
+        self.hover_raw(selector, id).await?;
+        self.invalidate_after_mutation().await;
+        Ok(())
+    }
+
+    /// Internal hover without cache invalidation — used by batch executor
+    /// to defer all invalidation to a single pass at the end.
+    async fn hover_raw(&self, selector: Option<&str>, id: Option<usize>) -> Result<(), RayoError> {
+        let sel = self.resolve_selector(selector, id).await?;
+        let _span = self.profiler.start_span(
+            format!("hover({})", truncate(&sel, 40)),
+            SpanCategory::DomMutate,
+        );
+        // Use CDP Input events via chromiumoxide Element API
+        // Element::hover() internally calls scroll_into_view() + move_mouse()
+        let element =
+            self.page
+                .find_element(&sel)
+                .await
+                .map_err(|e| RayoError::ElementNotFound {
+                    selector: format!("{sel}: {e}"),
+                })?;
+        element
+            .hover()
+            .await
+            .map_err(|e| RayoError::Cdp(format!("hover failed: {e}")))?;
+        Ok(())
+    }
+
     /// Type text into an element.
     /// Uses CDP Input.dispatchKeyEvent via chromiumoxide for real keystroke events.
     pub async fn type_text(
+        &self,
+        selector: Option<&str>,
+        id: Option<usize>,
+        text: &str,
+        clear: bool,
+    ) -> Result<(), RayoError> {
+        self.type_text_raw(selector, id, text, clear).await?;
+        self.invalidate_after_mutation().await;
+        Ok(())
+    }
+
+    /// Internal type_text without cache invalidation — used by batch executor
+    /// to defer all invalidation to a single pass at the end.
+    async fn type_text_raw(
         &self,
         selector: Option<&str>,
         id: Option<usize>,
@@ -535,7 +638,6 @@ impl RayoPage {
             .type_str(text)
             .await
             .map_err(|e| RayoError::Cdp(format!("type failed: {e}")))?;
-        self.invalidate_after_mutation().await;
         Ok(())
     }
 
@@ -543,6 +645,19 @@ impl RayoPage {
     /// Uses CDP Input.dispatchKeyEvent via chromiumoxide for real key events.
     /// Key names follow CDP conventions: "Enter", "Tab", "Escape", "ArrowDown", etc.
     pub async fn press_key(
+        &self,
+        selector: Option<&str>,
+        id: Option<usize>,
+        key: &str,
+    ) -> Result<(), RayoError> {
+        self.press_key_raw(selector, id, key).await?;
+        self.invalidate_after_mutation().await;
+        Ok(())
+    }
+
+    /// Internal press_key without cache invalidation — used by batch executor
+    /// to defer all invalidation to a single pass at the end.
+    async fn press_key_raw(
         &self,
         selector: Option<&str>,
         id: Option<usize>,
@@ -576,12 +691,24 @@ impl RayoPage {
                 .await
                 .map_err(|e| RayoError::Cdp(format!("press_key failed: {e}")))?;
         }
-        self.invalidate_after_mutation().await;
         Ok(())
     }
 
     /// Select an option from a dropdown.
     pub async fn select_option(
+        &self,
+        selector: Option<&str>,
+        id: Option<usize>,
+        value: &str,
+    ) -> Result<(), RayoError> {
+        self.select_option_raw(selector, id, value).await?;
+        self.invalidate_after_mutation().await;
+        Ok(())
+    }
+
+    /// Internal select_option without cache invalidation — used by batch executor
+    /// to defer all invalidation to a single pass at the end.
+    async fn select_option_raw(
         &self,
         selector: Option<&str>,
         id: Option<usize>,
@@ -601,7 +728,6 @@ impl RayoPage {
             val_json = serde_json::to_string(value).unwrap(),
         );
         self.page.evaluate(js).await?;
-        self.invalidate_after_mutation().await;
         Ok(())
     }
 
@@ -629,21 +755,25 @@ impl RayoPage {
                 }
                 BatchAction::Type { target, value } => {
                     let (sel, id) = target_to_selector_id(target);
-                    self.type_text(sel, id, value, true).await.map(|_| None)
+                    self.type_text_raw(sel, id, value, true).await.map(|_| None)
                 }
                 BatchAction::Select { target, value } => {
                     let (sel, id) = target_to_selector_id(target);
-                    self.select_option(sel, id, value).await.map(|_| None)
+                    self.select_option_raw(sel, id, value).await.map(|_| None)
                 }
-                BatchAction::Goto { url } => self.goto(url).await.map(|_| None),
+                BatchAction::Goto { url } => self.goto_raw(url).await.map(|_| None),
                 BatchAction::Screenshot { full_page } => self
                     .screenshot(*full_page)
                     .await
                     .map(|b64| Some(serde_json::Value::String(b64))),
-                BatchAction::WaitFor { target, timeout_ms } => {
+                BatchAction::WaitFor {
+                    target,
+                    timeout_ms,
+                    visible,
+                } => {
                     let (sel, id) = target_to_selector_id(target);
                     let selector = self.resolve_selector(sel, id).await?;
-                    self.wait_for_selector(&selector, *timeout_ms)
+                    self.wait_for_selector(&selector, *timeout_ms, visible.unwrap_or(false))
                         .await
                         .map(|_| None)
                 }
@@ -653,7 +783,11 @@ impl RayoPage {
                     } else {
                         (None, None)
                     };
-                    self.press_key(sel, id, key).await.map(|_| None)
+                    self.press_key_raw(sel, id, key).await.map(|_| None)
+                }
+                BatchAction::Hover { target } => {
+                    let (sel, id) = target_to_selector_id(target);
+                    self.hover_raw(sel, id).await.map(|_| None)
                 }
                 BatchAction::Scroll { target, x, y } => {
                     if let Some(t) = target {
@@ -735,33 +869,45 @@ impl RayoPage {
     /// Wait for a selector to appear using a MutationObserver-based approach.
     /// Instead of polling, this injects a Promise that resolves immediately if
     /// the element exists, or sets up a MutationObserver to detect when it appears.
+    ///
+    /// When `visible` is true, also checks that the element is visible (has layout
+    /// dimensions or a non-null offsetParent), not just present in the DOM.
     pub async fn wait_for_selector(
         &self,
         selector: &str,
         timeout_ms: u64,
+        visible: bool,
     ) -> Result<(), RayoError> {
         let _span = self.profiler.start_span(
             format!("wait({})", truncate(selector, 40)),
             SpanCategory::Wait,
         );
         let sel_json = serde_json::to_string(selector).unwrap();
+        let visible_js = if visible {
+            "function isVisible(el) { return el.offsetParent !== null || el.offsetWidth > 0 || el.offsetHeight > 0; }"
+        } else {
+            "function isVisible() { return true; }"
+        };
         let js = format!(
             r#"new Promise((resolve, reject) => {{
+                {visible_js}
                 const sel = {sel_json};
                 const el = document.querySelector(sel);
-                if (el) {{ resolve(true); return; }}
+                if (el && isVisible(el)) {{ resolve(true); return; }}
                 const observer = new MutationObserver(() => {{
-                    if (document.querySelector(sel)) {{
+                    const found = document.querySelector(sel);
+                    if (found && isVisible(found)) {{
                         observer.disconnect();
                         resolve(true);
                     }}
                 }});
-                observer.observe(document.body || document.documentElement, {{ childList: true, subtree: true }});
+                observer.observe(document.body || document.documentElement, {{ childList: true, subtree: true, attributes: {visible_check} }});
                 setTimeout(() => {{
                     observer.disconnect();
                     reject(new Error('timeout'));
                 }}, {timeout_ms});
-            }})"#
+            }})"#,
+            visible_check = if visible { "true" } else { "false" },
         );
 
         self.page.evaluate(js).await.map_err(|e| {
@@ -775,6 +921,64 @@ impl RayoPage {
                 RayoError::from(e)
             }
         })?;
+        Ok(())
+    }
+
+    /// Wait for network idle: no new network requests for `quiet_ms` milliseconds.
+    /// Times out after `timeout_ms` if network never goes idle.
+    ///
+    /// Uses the Performance API to detect pending resource fetches,
+    /// polling every 100ms until the quiet period is achieved.
+    pub async fn wait_for_network_idle(
+        &self,
+        quiet_ms: u64,
+        timeout_ms: u64,
+    ) -> Result<(), RayoError> {
+        let _span = self.profiler.start_span(
+            format!("wait_network_idle({}ms)", quiet_ms),
+            SpanCategory::Wait,
+        );
+
+        let js = format!(
+            r#"new Promise((resolve, reject) => {{
+                let lastActivity = Date.now();
+                const quietMs = {quiet_ms};
+                const timeoutMs = {timeout_ms};
+                const startTime = Date.now();
+
+                // Track ongoing fetches via PerformanceObserver
+                const observer = new PerformanceObserver((list) => {{
+                    for (const entry of list.getEntries()) {{
+                        lastActivity = Date.now();
+                    }}
+                }});
+                try {{
+                    observer.observe({{ type: 'resource', buffered: false }});
+                }} catch (e) {{
+                    // PerformanceObserver not supported — fall back to simple timeout
+                    setTimeout(() => resolve(true), quietMs);
+                    return;
+                }}
+
+                const check = setInterval(() => {{
+                    const now = Date.now();
+                    if (now - lastActivity >= quietMs) {{
+                        clearInterval(check);
+                        observer.disconnect();
+                        resolve(true);
+                    }} else if (now - startTime >= timeoutMs) {{
+                        clearInterval(check);
+                        observer.disconnect();
+                        resolve(true); // resolve anyway on timeout — best effort
+                    }}
+                }}, 100);
+            }})"#,
+        );
+
+        self.page
+            .evaluate(js)
+            .await
+            .map_err(|e| RayoError::Cdp(format!("wait_for_network_idle failed: {e}")))?;
         Ok(())
     }
 
@@ -913,9 +1117,7 @@ impl RayoPage {
                     .as_object()
                     .map(|obj| {
                         obj.iter()
-                            .filter_map(|(k, v)| {
-                                v.as_str().map(|val| (k.clone(), val.to_string()))
-                            })
+                            .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -999,9 +1201,7 @@ impl RayoPage {
                     .as_object()
                     .map(|obj| {
                         obj.iter()
-                            .filter_map(|(k, v)| {
-                                v.as_str().map(|val| (k.clone(), val.to_string()))
-                            })
+                            .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -1049,8 +1249,7 @@ impl RayoPage {
                     let body_b64 =
                         base64::engine::general_purpose::STANDARD.encode(mock.body.as_bytes());
 
-                    let mut params =
-                        FulfillRequestParams::new(request_id, mock.status as i64);
+                    let mut params = FulfillRequestParams::new(request_id, mock.status as i64);
                     params.response_headers = Some(response_headers);
                     params.body = Some(body_b64.into());
 
@@ -1074,10 +1273,7 @@ impl RayoPage {
                 }
                 drop(net);
 
-                if let Err(e) = page
-                    .execute(ContinueRequestParams::new(request_id))
-                    .await
-                {
+                if let Err(e) = page.execute(ContinueRequestParams::new(request_id)).await {
                     tracing::warn!("Fetch.continueRequest failed: {e}");
                 }
             }
@@ -1162,6 +1358,7 @@ fn action_name(action: &BatchAction) -> &'static str {
         BatchAction::Screenshot { .. } => "screenshot",
         BatchAction::WaitFor { .. } => "wait_for",
         BatchAction::Scroll { .. } => "scroll",
+        BatchAction::Hover { .. } => "hover",
     }
 }
 

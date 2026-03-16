@@ -46,6 +46,9 @@ pub enum BatchAction {
         target: ActionTarget,
         #[serde(default = "default_timeout")]
         timeout_ms: u64,
+        /// If true, also check that the element is visible (not just present in DOM).
+        #[serde(default)]
+        visible: Option<bool>,
     },
     /// Scroll to element or position.
     Scroll {
@@ -55,6 +58,11 @@ pub enum BatchAction {
         x: i32,
         #[serde(default)]
         y: i32,
+    },
+    /// Hover over an element (mouse move without click).
+    Hover {
+        #[serde(flatten)]
+        target: ActionTarget,
     },
 }
 

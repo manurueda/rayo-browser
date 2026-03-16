@@ -274,7 +274,8 @@ async fn test_mcp_tools() {
         // Start capture
         let capture_params = serde_json::json!({ "mode": "capture" });
         let result =
-            rayo_mcp::tools::handle_network(&page, &network, capture_params.as_object().unwrap()).await;
+            rayo_mcp::tools::handle_network(&page, &network, capture_params.as_object().unwrap())
+                .await;
         assert!(result.is_ok(), "network capture failed: {:?}", result.err());
         let json = serde_json::to_string(&result.unwrap().content).unwrap();
         assert!(json.contains("capture started"), "capture response: {json}");
@@ -305,7 +306,8 @@ async fn test_mcp_tools() {
         // Get requests (unfiltered)
         let requests_params = serde_json::json!({ "mode": "requests" });
         let result =
-            rayo_mcp::tools::handle_network(&page, &network, requests_params.as_object().unwrap()).await;
+            rayo_mcp::tools::handle_network(&page, &network, requests_params.as_object().unwrap())
+                .await;
         assert!(
             result.is_ok(),
             "network requests failed: {:?}",
@@ -320,7 +322,8 @@ async fn test_mcp_tools() {
         // Get requests (filtered)
         let filtered_params = serde_json::json!({ "mode": "requests", "url_pattern": "*form*" });
         let result =
-            rayo_mcp::tools::handle_network(&page, &network, filtered_params.as_object().unwrap()).await;
+            rayo_mcp::tools::handle_network(&page, &network, filtered_params.as_object().unwrap())
+                .await;
         assert!(
             result.is_ok(),
             "network filtered requests failed: {:?}",
@@ -335,7 +338,8 @@ async fn test_mcp_tools() {
         // Clear
         let clear_params = serde_json::json!({ "mode": "clear" });
         let result =
-            rayo_mcp::tools::handle_network(&page, &network, clear_params.as_object().unwrap()).await;
+            rayo_mcp::tools::handle_network(&page, &network, clear_params.as_object().unwrap())
+                .await;
         assert!(result.is_ok(), "network clear failed: {:?}", result.err());
         let json = serde_json::to_string(&result.unwrap().content).unwrap();
         assert!(json.contains("cleared"), "clear response: {json}");
@@ -343,7 +347,8 @@ async fn test_mcp_tools() {
         // Verify capture was cleared
         let requests_params = serde_json::json!({ "mode": "requests" });
         let result =
-            rayo_mcp::tools::handle_network(&page, &network, requests_params.as_object().unwrap()).await;
+            rayo_mcp::tools::handle_network(&page, &network, requests_params.as_object().unwrap())
+                .await;
         assert!(
             result.is_ok(),
             "network requests after clear failed: {:?}",

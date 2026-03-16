@@ -24,6 +24,8 @@ pub struct RuleEngine {
     config: RayoRulesConfig,
     violations: Vec<Violation>,
     screenshot_timestamps: Vec<Instant>,
+    /// Number of sequential interact/navigate calls without a batch.
+    sequential_action_count: usize,
 }
 
 impl RuleEngine {
@@ -32,6 +34,7 @@ impl RuleEngine {
             config,
             violations: Vec::new(),
             screenshot_timestamps: Vec::new(),
+            sequential_action_count: 0,
         }
     }
 
@@ -156,6 +159,66 @@ impl RuleEngine {
         None
     }
 
+    /// Check if sequential non-batch actions should be combined.
+    /// Returns a violation when 3+ sequential actions are detected.
+    pub fn check_batch_opportunity(&mut self) -> Option<Violation> {
+        self.sequential_action_count += 1;
+        if self.sequential_action_count >= 3 {
+            let severity = self
+                .config
+                .rules
+                .get("batching/combine-sequential")
+                .map(|r| r.severity())
+                .unwrap_or(Severity::Off);
+
+            if severity != Severity::Off {
+                let v = Violation {
+                    rule: "batching/combine-sequential".into(),
+                    severity,
+                    message: format!(
+                        "{} sequential actions detected. Use rayo_batch to combine them into a single call.",
+                        self.sequential_action_count
+                    ),
+                    suggestion: Some(
+                        "Use rayo_batch with multiple actions instead of individual rayo_interact calls."
+                            .into(),
+                    ),
+                };
+                self.violations.push(v.clone());
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    /// Reset the sequential action counter (called when batch is used).
+    pub fn reset_sequential_count(&mut self) {
+        self.sequential_action_count = 0;
+    }
+
+    /// Check if page_map should be preferred over screenshot.
+    pub fn check_page_map_preference(&mut self) -> Option<Violation> {
+        let severity = self
+            .config
+            .rules
+            .get("screenshots/prefer-page-map")
+            .map(|r| r.severity())
+            .unwrap_or(Severity::Off);
+
+        if severity == Severity::Off {
+            return None;
+        }
+
+        let v = Violation {
+            rule: "screenshots/prefer-page-map".into(),
+            severity,
+            message: "Consider using page_map instead of screenshot. Page maps are 200x more token-efficient.".into(),
+            suggestion: Some("Use rayo_observe with mode 'page_map' instead of 'screenshot'.".into()),
+        };
+        self.violations.push(v.clone());
+        Some(v)
+    }
+
     /// Get all accumulated violations.
     pub fn violations(&self) -> &[Violation] {
         &self.violations
@@ -164,6 +227,39 @@ impl RuleEngine {
     /// Get recent violations (since last drain).
     pub fn drain_violations(&mut self) -> Vec<Violation> {
         std::mem::take(&mut self.violations)
+    }
+
+    /// Get screenshot rate limit info: (screenshots_remaining, reset_in_ms).
+    /// Returns the number of screenshots still allowed in the current window and
+    /// milliseconds until the oldest timestamp expires (resetting a slot).
+    pub fn screenshot_rate_info(&self) -> (usize, u64) {
+        let now = Instant::now();
+
+        let max_per_minute = self
+            .config
+            .rules
+            .get("screenshots/rate-limit")
+            .and_then(|r| r.option("maxPerMinute"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10) as usize;
+
+        // Count only timestamps within the 60-second window
+        let active: Vec<_> = self
+            .screenshot_timestamps
+            .iter()
+            .filter(|t| now.duration_since(**t).as_secs() < 60)
+            .collect();
+
+        let remaining = max_per_minute.saturating_sub(active.len());
+
+        let reset_in_ms = if let Some(oldest) = active.first() {
+            let elapsed = now.duration_since(**oldest).as_millis() as u64;
+            60_000u64.saturating_sub(elapsed)
+        } else {
+            0
+        };
+
+        (remaining, reset_in_ms)
     }
 
     /// Get the rules config.
@@ -217,5 +313,50 @@ mod tests {
         // Under budget
         let v = engine.check_budget("cdp_command", 30.0);
         assert!(v.is_none());
+    }
+
+    #[test]
+    fn test_batch_opportunity_warning() {
+        let config = RayoRulesConfig::default();
+        let mut engine = RuleEngine::new(config);
+
+        // First two calls: no violation
+        assert!(engine.check_batch_opportunity().is_none());
+        assert!(engine.check_batch_opportunity().is_none());
+
+        // Third call: violation triggered
+        let v = engine.check_batch_opportunity();
+        assert!(v.is_some());
+        let v = v.unwrap();
+        assert_eq!(v.rule, "batching/combine-sequential");
+        assert!(v.message.contains("3 sequential actions"));
+    }
+
+    #[test]
+    fn test_batch_opportunity_reset() {
+        let config = RayoRulesConfig::default();
+        let mut engine = RuleEngine::new(config);
+
+        // Two calls, then reset
+        assert!(engine.check_batch_opportunity().is_none());
+        assert!(engine.check_batch_opportunity().is_none());
+        engine.reset_sequential_count();
+
+        // Two more calls — still no violation (counter was reset)
+        assert!(engine.check_batch_opportunity().is_none());
+        assert!(engine.check_batch_opportunity().is_none());
+    }
+
+    #[test]
+    fn test_page_map_preference() {
+        let config = RayoRulesConfig::default();
+        let mut engine = RuleEngine::new(config);
+
+        let v = engine.check_page_map_preference();
+        assert!(v.is_some());
+        let v = v.unwrap();
+        assert_eq!(v.rule, "screenshots/prefer-page-map");
+        assert!(v.message.contains("page_map"));
+        assert!(v.suggestion.unwrap().contains("page_map"));
     }
 }

@@ -21,6 +21,12 @@ pub struct PageMap {
     pub headings: Vec<String>,
     /// Short text summary of the page content.
     pub text_summary: String,
+    /// Total number of interactive elements on the page (only present when truncated).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_interactive: Option<usize>,
+    /// Whether the interactive elements list was truncated (only present when true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
 }
 
 /// An interactive element on the page.
@@ -60,6 +66,9 @@ pub struct InteractiveElement {
     /// CSS selector to locate this element.
     #[serde(skip_serializing)]
     pub selector: String,
+    /// Element states (disabled, readonly, required, checked, hidden).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub state: Vec<String>,
 }
 
 /// JavaScript to extract the page map from the browser.
@@ -141,9 +150,20 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
             }
         }
 
+        // Element state
+        const state = [];
+        if (el.disabled) state.push('disabled');
+        if (el.readOnly) state.push('readonly');
+        if (el.required) state.push('required');
+        if (el.checked) state.push('checked');
+        if (el.hidden || (el.type === 'hidden')) state.push('hidden');
+        if (state.length > 0) item.state = state;
+
         interactive.push(item);
         count++;
     });
+
+    const totalInteractive = elements.length;
 
     // Headings
     const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
@@ -169,6 +189,8 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
         interactive: interactive,
         headings: headings,
         text_summary: textSummary || document.title,
+        total_interactive: totalInteractive > MAX_ELEMENTS ? totalInteractive : undefined,
+        truncated: totalInteractive > MAX_ELEMENTS ? true : undefined,
     };
 })()
 "#;
@@ -204,9 +226,12 @@ mod tests {
                 role: None,
                 href: None,
                 selector: "input[name=\"q\"]".into(),
+                state: vec![],
             }],
             headings: vec!["Welcome".into()],
             text_summary: "A simple example page.".into(),
+            total_interactive: None,
+            truncated: None,
         };
 
         let json = serde_json::to_string_pretty(&map).unwrap();
