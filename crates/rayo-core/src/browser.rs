@@ -1121,11 +1121,23 @@ impl RayoPage {
             format!("set_cookies({})", cookies.len()),
             SpanCategory::CdpCommand,
         );
-        let cdp_cookies: Vec<CookieParam> = cookies.into_iter().map(to_cdp_cookie).collect();
-        self.page
-            .set_cookies(cdp_cookies)
-            .await
-            .map_err(|e| RayoError::CookieError(format!("Failed to set cookies: {e}")))?;
+        // Set cookies individually — one bad cookie shouldn't block the rest
+        let mut set_count = 0;
+        for cookie in cookies {
+            let name = cookie.name.clone();
+            let cdp = to_cdp_cookie(cookie);
+            match self.page.set_cookies(vec![cdp]).await {
+                Ok(_) => set_count += 1,
+                Err(e) => {
+                    tracing::warn!("Failed to set cookie '{}': {}", name, e);
+                }
+            }
+        }
+        if set_count == 0 {
+            return Err(RayoError::CookieError(
+                "Failed to set any cookies".to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -1516,7 +1528,11 @@ fn to_cdp_cookie(c: SetCookie) -> CookieParam {
     cp.url = c.url.or_else(|| {
         c.domain.as_ref().map(|d| {
             let d = d.trim_start_matches('.');
-            let scheme = if c.secure == Some(true) { "https" } else { "http" };
+            let scheme = if c.secure == Some(true) {
+                "https"
+            } else {
+                "http"
+            };
             format!("{scheme}://{d}/")
         })
     });
