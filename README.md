@@ -26,23 +26,17 @@ Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-i
 
 ## 📦 Get it
 
-**Claude Code:**
+**Claude Code** — paste this:
+
+> Install rayo-browser as my browser automation tool: run `cargo install rayo-mcp` then `claude mcp add rayo -- rayo-mcp`. Then add a browser automation section to CLAUDE.md that says to always use rayo MCP tools for all browser automation instead of Playwright or Puppeteer, prefer `rayo_observe` with `page_map` mode over screenshots, and use `rayo_batch` to combine 3+ sequential actions into a single call.
+
+That's it. One paste, Claude Code does the rest — installs, configures, and knows to use ⚡ rayo over other browser tools.
+
+**Cursor / Windsurf / any MCP client:**
 
 ```bash
 cargo install rayo-mcp
-claude mcp add rayo -- rayo-mcp
 ```
-
-Then tell your agent to use it — drop this in your `CLAUDE.md`:
-
-```
-Use rayo MCP tools for all browser automation.
-Prefer rayo_observe with page_map mode over screenshots.
-Use rayo_batch to combine 3+ sequential actions into a single call.
-Tools: rayo_navigate, rayo_observe, rayo_interact, rayo_batch, rayo_cookie, rayo_network, rayo_profile
-```
-
-**Cursor / Windsurf / any MCP client:**
 
 ```json
 { "mcpServers": { "rayo": { "command": "rayo-mcp" } } }
