@@ -13,8 +13,9 @@ use chromiumoxide::cdp::browser_protocol::fetch::{
     FailRequestParams, FulfillRequestParams, HeaderEntry as FetchHeaderEntry,
 };
 use chromiumoxide::cdp::browser_protocol::network::{
-    ClearBrowserCookiesParams, CookieParam, CookieSameSite, DeleteCookiesParams, ErrorReason,
-    TimeSinceEpoch,
+    ClearBrowserCookiesParams, CookieParam, CookieSameSite, DeleteCookiesParams,
+    EnableParams as NetworkEnableParams, ErrorReason, EventRequestWillBeSent,
+    EventResponseReceived, TimeSinceEpoch,
 };
 use chromiumoxide::cdp::browser_protocol::page::{
     CaptureScreenshotFormat, CaptureScreenshotParams, Viewport,
@@ -340,10 +341,17 @@ impl RayoPage {
         .filter(t => t.length > 0)
         .slice(0, 10);
 
-    const paragraphs = Array.from(root.querySelectorAll('p'))
-        .map(p => p.textContent.trim())
-        .filter(t => t.length > 20);
-    const textSummary = paragraphs.slice(0, 2).join(' ').slice(0, 300);
+    // Text summary — extract visible text from the scoped root
+    const scopeContent = root.querySelector('main, [role="main"], article, .readme, #readme') || root;
+    const paragraphs = Array.from(scopeContent.querySelectorAll('p, li, dd, blockquote'))
+        .filter(el => {{
+            if (!el.offsetParent && el.style.position !== 'fixed') return false;
+            const text = el.textContent.trim();
+            return text.length > 20;
+        }})
+        .map(el => el.textContent.trim())
+        .slice(0, 5);
+    const textSummary = paragraphs.join(' ').slice(0, 600);
 
     return {{
         url: window.location.href,
@@ -531,6 +539,47 @@ impl RayoPage {
         Ok(())
     }
 
+    /// Press a key on an element or the document.
+    /// Uses CDP Input.dispatchKeyEvent via chromiumoxide for real key events.
+    /// Key names follow CDP conventions: "Enter", "Tab", "Escape", "ArrowDown", etc.
+    pub async fn press_key(
+        &self,
+        selector: Option<&str>,
+        id: Option<usize>,
+        key: &str,
+    ) -> Result<(), RayoError> {
+        let _span = self.profiler.start_span(
+            format!("press_key({})", truncate(key, 20)),
+            SpanCategory::DomMutate,
+        );
+        if selector.is_some() || id.is_some() {
+            let sel = self.resolve_selector(selector, id).await?;
+            let element =
+                self.page
+                    .find_element(&sel)
+                    .await
+                    .map_err(|e| RayoError::ElementNotFound {
+                        selector: format!("{sel}: {e}"),
+                    })?;
+            element
+                .press_key(key)
+                .await
+                .map_err(|e| RayoError::Cdp(format!("press_key failed: {e}")))?;
+        } else {
+            // No selector/id — dispatch key press on the document body
+            let element =
+                self.page.find_element("body").await.map_err(|e| {
+                    RayoError::Cdp(format!("could not find body for key press: {e}"))
+                })?;
+            element
+                .press_key(key)
+                .await
+                .map_err(|e| RayoError::Cdp(format!("press_key failed: {e}")))?;
+        }
+        self.invalidate_after_mutation().await;
+        Ok(())
+    }
+
     /// Select an option from a dropdown.
     pub async fn select_option(
         &self,
@@ -597,6 +646,14 @@ impl RayoPage {
                     self.wait_for_selector(&selector, *timeout_ms)
                         .await
                         .map(|_| None)
+                }
+                BatchAction::Press { target, key } => {
+                    let (sel, id) = if let Some(t) = target {
+                        target_to_selector_id(t)
+                    } else {
+                        (None, None)
+                    };
+                    self.press_key(sel, id, key).await.map(|_| None)
                 }
                 BatchAction::Scroll { target, x, y } => {
                     if let Some(t) = target {
@@ -797,11 +854,112 @@ impl RayoPage {
         Ok(())
     }
 
+    /// Enable passive network monitoring via the CDP Network domain.
+    ///
+    /// Uses `Network.enable` to passively observe traffic without intercepting it.
+    /// Listens for `Network.requestWillBeSent` and `Network.responseReceived` events
+    /// to record requests and their response statuses. Requests flow normally with
+    /// zero added latency — this is the right mode for capture-only use cases.
+    pub async fn enable_network_monitoring(
+        &self,
+        network: Arc<Mutex<NetworkInterceptor>>,
+    ) -> Result<(), RayoError> {
+        // Enable the Network domain for passive monitoring
+        self.page
+            .execute(NetworkEnableParams::default())
+            .await
+            .map_err(|e| RayoError::Cdp(format!("Network.enable failed: {e}")))?;
+
+        // Subscribe to requestWillBeSent events
+        let mut request_events = self
+            .page
+            .event_listener::<EventRequestWillBeSent>()
+            .await
+            .map_err(|e| {
+                RayoError::Cdp(format!(
+                    "Failed to listen for Network.requestWillBeSent: {e}"
+                ))
+            })?;
+
+        // Subscribe to responseReceived events
+        let mut response_events = self
+            .page
+            .event_listener::<EventResponseReceived>()
+            .await
+            .map_err(|e| {
+                RayoError::Cdp(format!(
+                    "Failed to listen for Network.responseReceived: {e}"
+                ))
+            })?;
+
+        // Spawn task for requestWillBeSent — records new requests
+        let network_for_requests = Arc::clone(&network);
+        tokio::spawn(async move {
+            while let Some(event) = request_events.next().await {
+                let url = event.request.url.clone();
+                let method = event.request.method.clone();
+                let resource_type_str = event
+                    .r#type
+                    .as_ref()
+                    .map(|t| t.as_ref().to_string())
+                    .unwrap_or_else(|| "Other".to_string());
+                let request_id = event.request_id.inner().to_string();
+
+                // Extract request headers
+                let headers: Vec<(String, String)> = event
+                    .request
+                    .headers
+                    .inner()
+                    .as_object()
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, v)| {
+                                v.as_str().map(|val| (k.clone(), val.to_string()))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let mut net = network_for_requests.lock().await;
+                if net.is_capturing() {
+                    net.record_request(CapturedRequest {
+                        url,
+                        method,
+                        resource_type: resource_type_str,
+                        status: None, // filled in by responseReceived
+                        headers,
+                        timestamp_ms: timestamp_now_ms(),
+                        request_id: Some(request_id),
+                    });
+                }
+            }
+        });
+
+        // Spawn task for responseReceived — updates status on existing requests
+        let network_for_responses = Arc::clone(&network);
+        tokio::spawn(async move {
+            while let Some(event) = response_events.next().await {
+                let request_id = event.request_id.inner().to_string();
+                let status = event.response.status;
+
+                let mut net = network_for_responses.lock().await;
+                if net.is_capturing() {
+                    net.update_request_status(&request_id, status);
+                }
+            }
+        });
+
+        Ok(())
+    }
+
     /// Enable CDP Fetch-domain interception and wire events to the NetworkInterceptor.
     ///
     /// Subscribes to `Fetch.requestPaused` events. For each paused request the handler
     /// checks block rules, mock rules, and capture state in the shared `NetworkInterceptor`,
     /// then responds with `failRequest`, `fulfillRequest`, or `continueRequest` accordingly.
+    ///
+    /// This is only needed when block or mock rules are active. For capture-only,
+    /// use `enable_network_monitoring()` instead.
     pub async fn enable_network_interception(
         &self,
         network: Arc<Mutex<NetworkInterceptor>>,
@@ -876,6 +1034,7 @@ impl RayoPage {
                             status: Some(mock.status as i64),
                             headers,
                             timestamp_ms: timestamp_now_ms(),
+                            request_id: None,
                         });
                     }
                     drop(net);
@@ -910,6 +1069,7 @@ impl RayoPage {
                         status: None, // status unknown at request stage
                         headers,
                         timestamp_ms: timestamp_now_ms(),
+                        request_id: None,
                     });
                 }
                 drop(net);
@@ -997,6 +1157,7 @@ fn action_name(action: &BatchAction) -> &'static str {
         BatchAction::Click { .. } => "click",
         BatchAction::Type { .. } => "type",
         BatchAction::Select { .. } => "select",
+        BatchAction::Press { .. } => "press",
         BatchAction::Goto { .. } => "goto",
         BatchAction::Screenshot { .. } => "screenshot",
         BatchAction::WaitFor { .. } => "wait_for",

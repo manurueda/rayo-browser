@@ -192,6 +192,18 @@ pub async fn handle_interact(
                 .map_err(internal_err)?;
             format!("Selected: {val}")
         }
+        "press" => {
+            let key = value.ok_or_else(|| {
+                McpError::invalid_params(
+                    "value is required for press (key name, e.g. \"Enter\", \"Tab\", \"Escape\")",
+                    None,
+                )
+            })?;
+            page.press_key(selector, id, key)
+                .await
+                .map_err(internal_err)?;
+            format!("Pressed: {key}")
+        }
         "scroll" => {
             if let Some(sel) = selector {
                 let js = format!(
@@ -449,6 +461,7 @@ pub async fn handle_cookie(
 }
 
 pub async fn handle_network(
+    page: &RayoPage,
     network: &Arc<Mutex<NetworkInterceptor>>,
     params: &serde_json::Map<String, Value>,
 ) -> Result<CallToolResult, McpError> {
@@ -486,10 +499,18 @@ pub async fn handle_network(
                 .get("resource_type")
                 .and_then(|v| v.as_str())
                 .map(String::from);
+            let need_fetch = !net.has_active_rules();
             net.add_block_rule(rayo_core::network::BlockRule {
                 url_pattern: url_pattern.to_string(),
                 resource_type,
             });
+            // Enable Fetch interception on first block/mock rule
+            if need_fetch {
+                drop(net);
+                page.enable_network_interception(Arc::clone(network))
+                    .await
+                    .map_err(internal_err)?;
+            }
             Ok(CallToolResult::success(vec![Content::text(format!(
                 "Blocking requests matching: {url_pattern}"
             ))]))
@@ -527,6 +548,7 @@ pub async fn handle_network(
                 .and_then(|v| v.as_str())
                 .map(String::from);
 
+            let need_fetch = !net.has_active_rules();
             net.add_mock_rule(rayo_core::network::MockRule {
                 url_pattern: url_pattern.to_string(),
                 status,
@@ -534,6 +556,13 @@ pub async fn handle_network(
                 headers,
                 resource_type,
             });
+            // Enable Fetch interception on first block/mock rule
+            if need_fetch {
+                drop(net);
+                page.enable_network_interception(Arc::clone(network))
+                    .await
+                    .map_err(internal_err)?;
+            }
             Ok(CallToolResult::success(vec![Content::text(format!(
                 "Mocking requests matching: {url_pattern} with status {status}"
             ))]))

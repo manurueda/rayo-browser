@@ -80,12 +80,12 @@ impl RayoServer {
             let page = browser.new_page().await.map_err(|e| {
                 McpError::internal_error(format!("Failed to create page: {e}"), None)
             })?;
-            // Wire CDP Fetch events to the shared NetworkInterceptor
-            page.enable_network_interception(Arc::clone(&self.network))
+            // Wire passive Network domain monitoring for capture
+            page.enable_network_monitoring(Arc::clone(&self.network))
                 .await
                 .map_err(|e| {
                     McpError::internal_error(
-                        format!("Failed to enable network interception: {e}"),
+                        format!("Failed to enable network monitoring: {e}"),
                         None,
                     )
                 })?;
@@ -124,12 +124,12 @@ impl RayoServer {
                 let page = browser.new_page().await.map_err(|e| {
                     McpError::internal_error(format!("Failed to create tab: {e}"), None)
                 })?;
-                // Wire CDP Fetch events to the shared NetworkInterceptor
-                page.enable_network_interception(Arc::clone(&self.network))
+                // Wire passive Network domain monitoring for capture
+                page.enable_network_monitoring(Arc::clone(&self.network))
                     .await
                     .map_err(|e| {
                         McpError::internal_error(
-                            format!("Failed to enable network interception: {e}"),
+                            format!("Failed to enable network monitoring: {e}"),
                             None,
                         )
                     })?;
@@ -257,11 +257,11 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_interact",
-                "Interact with an element. Use id from page_map or CSS selector. Actions: click, type (requires value), select (requires value), scroll. Optional tab_id.",
+                "Interact with an element. Use id from page_map or CSS selector. Actions: click, type (requires value), press (requires value — key name like \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\"), select (requires value), scroll. Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
-                        "action": { "type": "string", "enum": ["click", "type", "select", "scroll"] },
+                        "action": { "type": "string", "enum": ["click", "type", "press", "select", "scroll"] },
                         "id": { "type": "integer", "description": "Element ID from page_map" },
                         "selector": { "type": "string", "description": "CSS selector (alternative to id)" },
                         "value": { "type": "string", "description": "Text to type or option to select" },
@@ -281,10 +281,11 @@ impl RayoServer {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "action": { "type": "string", "enum": ["click", "type", "select", "goto", "screenshot", "wait_for", "scroll"] },
+                                    "action": { "type": "string", "enum": ["click", "type", "press", "select", "goto", "screenshot", "wait_for", "scroll"] },
                                     "id": { "type": "integer" },
                                     "selector": { "type": "string" },
                                     "value": { "type": "string" },
+                                    "key": { "type": "string", "description": "Key name for press action (e.g. Enter, Tab, Escape, ArrowDown)" },
                                     "url": { "type": "string" },
                                     "full_page": { "type": "boolean" },
                                     "timeout_ms": { "type": "integer" },
@@ -459,7 +460,11 @@ impl ServerHandler for RayoServer {
                     let page = Self::resolve_page(&tabs, tab_id).await?;
                     tools::handle_cookie(page, &params).await
                 }
-                "rayo_network" => tools::handle_network(&self.network, &params).await,
+                "rayo_network" => {
+                    let tabs = self.tabs.lock().await;
+                    let page = Self::resolve_page(&tabs, tab_id).await?;
+                    tools::handle_network(page, &self.network, &params).await
+                }
                 "rayo_profile" => tools::handle_profile(&self.profiler, &params).await,
                 _ => Err(McpError::invalid_request(
                     format!("Unknown tool: {tool_name}"),

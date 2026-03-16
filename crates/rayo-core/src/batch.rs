@@ -27,6 +27,12 @@ pub enum BatchAction {
         target: ActionTarget,
         value: String,
     },
+    /// Press a key on an element or the document.
+    Press {
+        #[serde(flatten)]
+        target: Option<ActionTarget>,
+        key: String,
+    },
     /// Navigate to a URL.
     Goto { url: String },
     /// Take a screenshot.
