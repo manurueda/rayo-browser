@@ -1,84 +1,67 @@
 # ⚡ rayo-browser
 
-**The fastest MCP browser automation tool.** Rust-powered, benchmark-proven, AI-native.
+**Your AI agent is mass 95% of its context window on screenshots. Stop.**
 
-AI agents waste 90%+ of their context window on screenshots and tool descriptions. ⚡ rayo fixes that.
-
-## 🚀 Benchmarks
-
-Real Claude Code workflows. Real websites. 10 iterations, warm browsers. [Run them yourself →](#run-benchmarks-yourself)
-
-### End-to-End Speed + Token Cost
+⚡ rayo is an MCP browser tool built in Rust. It replaces screenshots with page maps, batches actions into single calls, and uses 9x less context than Playwright MCP. Same browser, radically less waste.
 
 ```
                               Speed                    Tokens
-                        ─────────────────       ─────────────────────
-
 Wikipedia Research
   ⚡ rayo              132ms  ██░░░░░░░░░        5,453  █░░░░░░░░░░░░░░░░░░░
   Playwright          204ms  ███░░░░░░░░      100,367  ████████████████████
-                                1.5x faster                    95% fewer tokens
+                                                                 95% fewer
 
 Form Fill + Submit
   ⚡ rayo              251ms  ████░░░░░░░        3,690  ███░░░░░░░░░░░░░░░░░
   Playwright          411ms  ██████░░░░░       23,311  ████████████████████
-                                1.6x faster                    84% fewer tokens
+                                1.6x faster              84% fewer
 
 HN Browse + Read
   ⚡ rayo              212ms  █░░░░░░░░░░        6,961  ██░░░░░░░░░░░░░░░░░░
   Playwright        3,723ms  ████████████      75,395  ████████████████████
-                               17.6x faster                    91% fewer tokens
+                               17.6x faster              91% fewer
 ```
 
-### Page Understanding
+Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-it)
 
-| Method | Adapter | Latency | ~Tokens |
-|--------|---------|---------|--------|
-| **page_map** | **⚡ rayo** | **<1ms** | **~97** |
-| text | ⚡ rayo | <1ms | ~47 |
-| screenshot | Playwright | 17ms | ~5,526 |
-| screenshot | Puppeteer | 17ms | ~5,487 |
+## 📦 Get it
 
-### Tool Description Token Cost
+**Claude Code:**
 
-```
-  ⚡ rayo-browser  ~1,500 tokens  ██░░░░░░░░░░░░░░░░░░  0.75% of context
-  Puppeteer MCP    ~4,500 tokens  ███████░░░░░░░░░░░░░  2.25% of context
-  Playwright MCP  ~13,200 tokens  ████████████████████  6.60% of context
+```bash
+cargo install rayo-mcp
+claude mcp add rayo -- rayo-mcp
 ```
 
-## 📦 Install
+Then tell your agent to use it — drop this in your `CLAUDE.md`:
 
-**Claude Code** — paste this:
+```
+Use rayo MCP tools for all browser automation.
+Prefer rayo_observe with page_map mode over screenshots.
+Use rayo_batch to combine 3+ sequential actions into a single call.
+Tools: rayo_navigate, rayo_observe, rayo_interact, rayo_batch, rayo_cookie, rayo_network, rayo_profile
+```
 
-> Install rayo-browser: run `cargo install rayo-mcp` then `claude mcp add rayo -- rayo-mcp`. Then add a "rayo-browser" section to CLAUDE.md that says to use rayo MCP tools for all browser automation, always prefer `rayo_observe` with `page_map` mode over screenshots, use `rayo_batch` to combine 3+ sequential actions into a single call, and lists the 7 tools: `rayo_navigate`, `rayo_observe`, `rayo_interact`, `rayo_batch`, `rayo_cookie`, `rayo_network`, `rayo_profile`.
-
-**Cursor, Windsurf, or any MCP client:**
+**Cursor / Windsurf / any MCP client:**
 
 ```json
-{
-  "mcpServers": {
-    "rayo": {
-      "command": "rayo-mcp"
-    }
-  }
-}
+{ "mcpServers": { "rayo": { "command": "rayo-mcp" } } }
 ```
 
-## 💡 Why ⚡ rayo?
+## 💡 The problem
 
-AI agents using Playwright for browser automation are painfully slow. Not because browsers are slow — because the automation stack is wrong for AI.
+Every MCP browser tool today works the same way: screenshot the page, send 5,500 tokens to the LLM, get one action back, repeat. Your agent burns context on pixels it can't even read properly.
 
-| Problem | Playwright | ⚡ rayo-browser |
-|---------|-----------|-------------|
-| Actions per MCP call | 1 action = 1 call | `rayo_batch`: 10 actions in 1 call |
-| Page understanding | Screenshot: ~5,500 tokens | Page map: ~97 tokens |
-| Tool descriptions | 22 tools, ~13,200 tokens | 7 tools, ~1,500 tokens |
-| Context window cost | 6.60% of 200k | 0.75% of 200k |
+| | Playwright MCP | ⚡ rayo |
+|---|---|---|
+| **See the page** | Screenshot: ~5,500 tokens | Page map: ~97 tokens |
+| **Fill a form** | 8 tool calls, one field at a time | 1 batch call, all fields |
+| **Tool definitions** | 22 tools → 13,200 tokens loaded | 7 tools → 1,500 tokens loaded |
+| **Context cost** | 6.60% of 200k window | 0.75% of 200k window |
 
-## 🧠 Key Innovation: Page Maps
+## 🧠 Page maps replace screenshots
 
-Instead of screenshots (~5,500 tokens) or raw HTML (~50k tokens):
+This is how your agent sees a page. Not pixels. Structure.
 
 ```json
 {
@@ -95,9 +78,15 @@ Instead of screenshots (~5,500 tokens) or raw HTML (~50k tokens):
 }
 ```
 
-**~97 tokens. 57x more efficient than a screenshot.**
+**97 tokens. The screenshot of this same page? 5,500 tokens. Same information, 57x cheaper.**
 
-## ⚡ Key Innovation: Batch Actions
+The agent reads the page map, knows there are 4 elements, and acts immediately. No vision model. No guessing coordinates. No "I can see a button that says..."
+
+## ⚡ Batch actions
+
+Playwright MCP: 4 tool calls → 4 LLM round-trips → 4 screenshots back.
+
+⚡ rayo: 1 call.
 
 ```json
 {
@@ -111,94 +100,89 @@ Instead of screenshots (~5,500 tokens) or raw HTML (~50k tokens):
 }
 ```
 
-4 actions in 1 MCP call. Without batch: 4 round-trips through the LLM.
+The agent already knows the IDs from the page map. It fills the form and submits in a single MCP call. No back-and-forth.
 
-## 🔧 The 7 MCP Tools
+## 📊 Full benchmark breakdown
 
-| Tool | Purpose | Tokens |
-|------|---------|--------|
-| `rayo_navigate` | goto, reload, back, forward, new_tab, close_tab, list_tabs, switch_tab | ~300 |
-| `rayo_observe` | page_map, text, screenshot | ~300 |
-| `rayo_interact` | click, type, select, scroll | ~250 |
-| `rayo_batch` | execute multiple actions in 1 call | ~350 |
-| `rayo_cookie` | set, get, clear cookies | ~250 |
-| `rayo_network` | capture, block, mock, requests | ~250 |
-| `rayo_profile` | get profiling results | ~150 |
-| **Total** | | **~1,500** |
+All numbers from real websites, 10 iterations, 3 warmup, warm browsers.
 
-## 📊 Built-in Profiling
+### How each tool sees a page
 
-Every operation is timed. Get results with `rayo_profile`:
+| Method | ⚡ rayo | Playwright | Puppeteer |
+|--------|---------|------------|-----------|
+| **page_map** | **<1ms · ~97 tokens** | — | — |
+| text | <1ms · ~47 tokens | 1ms · ~33 tokens | 1ms · ~33 tokens |
+| screenshot | 17ms · ~4,572 tokens | 17ms · ~5,526 tokens | 17ms · ~5,487 tokens |
 
-```
-RAYO PROFILE (3379.6ms total)
-  navigation: 3379.6ms (84.4%) | 47 ops | avg 71.9ms | p95 167.0ms
-  screenshot:  241.4ms  (6.0%) | 13 ops | avg 18.6ms | p95 25.1ms
-  page_map:    140.4ms  (3.5%) | 77 ops | avg  1.8ms | p95  5.2ms
-  batch:       113.3ms  (2.8%) |  1 ops | avg 113.3ms
-  dom.mutate:  113.2ms  (2.8%) |  4 ops | avg 28.3ms | p95 34.1ms
-SLOWEST: goto(wikipedia.org) 431.2ms
-```
+Screenshots take the same 17ms everywhere — it's Chrome's rendering pipeline. The difference is that ⚡ rayo agents don't need them. Page maps give the same information in <1ms and 57x fewer tokens.
 
-## 🛡️ AI Speed Rules
+### Navigation speed
 
-Ships with built-in rules that guide AI agents toward fast patterns:
+| Site | ⚡ rayo | Playwright | Puppeteer |
+|------|---------|------------|-----------|
+| example.com | 3ms | 3ms | 13ms |
+| Wikipedia | 72ms | 69ms | 81ms |
+| Hacker News | 81ms | 75ms | 89ms |
+
+Navigation is network-bound. All three tools are the same speed — it's the same browser. The wins come from what happens *after* the page loads.
+
+### Context window overhead
 
 ```
-RAYO SPEED RULES:
-- PREFER CSS selectors over XPath (2-10x faster)
-- DO NOT screenshot after every action. Use page_map instead.
-- DO NOT sleep. Use event-driven waits.
-- BATCH 3+ sequential actions into rayo_batch
+  ⚡ rayo           ~1,500 tokens  ██░░░░░░░░░░░░░░░░░░  0.75% of 200k
+  Puppeteer MCP     ~4,500 tokens  ███████░░░░░░░░░░░░░  2.25% of 200k
+  Playwright MCP   ~13,200 tokens  ████████████████████  6.60% of 200k
 ```
 
-## 🏗️ Architecture
+These are the tool definitions your agent loads before it does anything. Playwright MCP's 22 tool descriptions eat 6.6% of a 200k context window on arrival.
+
+## 📈 Built-in profiler
+
+Every ⚡ rayo operation is timed. Call `rayo_profile` to see where time goes:
 
 ```
-AI Agent (Claude Code, Cursor, etc.)
-         |
-    MCP (stdio)
-         |
-    +----------+
-    | rayo-mcp |  ← 7 tools, ~1,500 tokens
-    |  batch   |
-    |  rules   |
-    |  profiler |
-    +----------+
-    | rayo-core |  ← page maps, selector cache, tabs, network
-    +----------+
-    |chromium- |  ← CDP protocol
-    |  oxide   |
-    +----+-----+
-         |
-    Chrome/Chromium
+RAYO PROFILE (3.4s total, benchmark suite)
+  navigation: 3379ms (84%) | 47 ops | avg 72ms  | p95 167ms
+  screenshot:  241ms  (6%) | 13 ops | avg 19ms  | p95 25ms
+  page_map:    140ms  (4%) | 77 ops | avg 1.8ms | p95 5.2ms
+  batch:       113ms  (3%) |  1 op  | avg 113ms
+  dom.mutate:  113ms  (3%) |  4 ops | avg 28ms  | p95 34ms
+SLOWEST: goto(wikipedia.org) 431ms
 ```
 
-## 🧪 Run Benchmarks Yourself
+84% of time is network I/O (navigation). Page maps average 1.8ms. The tool itself is not the bottleneck — the internet is.
+
+## 🔧 The 7 tools
+
+| Tool | Does |
+|------|------|
+| `rayo_navigate` | goto, reload, back, forward, tabs |
+| `rayo_observe` | page_map, text, screenshot |
+| `rayo_interact` | click, type, select, scroll |
+| `rayo_batch` | N actions in 1 call |
+| `rayo_cookie` | set, get, clear |
+| `rayo_network` | capture, block, mock requests |
+| `rayo_profile` | performance data |
+
+## 🧪 Reproduce it
 
 ```bash
-# Internal micro-benchmarks (Criterion)
-cargo bench
-
-# Competitor comparison (vs Playwright + Puppeteer)
+# Run the full competitor benchmark (vs Playwright + Puppeteer)
 cd bench/competitors && npm install && npx tsx src/run-benchmarks.ts
+
+# Run internal micro-benchmarks
+cargo bench
 ```
 
 ## 🛠️ Development
 
 ```bash
-cargo build --workspace          # Build all
-cargo test --workspace           # Run all tests (needs Chrome)
-cargo bench                      # Run criterion benchmarks
-cargo run --bin rayo-mcp         # Start MCP server
-cargo clippy --workspace         # Lint
-cargo fmt --check --all          # Check formatting
+cargo build --workspace          # Build
+cargo test --workspace           # Test (needs Chrome)
+cargo bench                      # Benchmark
+cargo run --bin rayo-mcp         # Run
 ```
 
 ## License
 
 MIT
-
----
-
-[![Star History Chart](https://api.star-history.com/svg?repos=manurueda/rayo-browser&type=Date)](https://www.star-history.com/#manurueda/rayo-browser&Date)
