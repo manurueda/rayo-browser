@@ -14,6 +14,9 @@ pub struct CapturedRequest {
     pub status: Option<i64>,
     pub headers: Vec<(String, String)>,
     pub timestamp_ms: f64,
+    /// CDP request ID used to correlate request/response events.
+    #[serde(skip)]
+    pub request_id: Option<String>,
 }
 
 /// A rule for blocking network requests.
@@ -86,6 +89,18 @@ impl NetworkInterceptor {
     pub fn record_request(&mut self, req: CapturedRequest) {
         if self.capturing && self.captured.len() < self.max_captured {
             self.captured.push(req);
+        }
+    }
+
+    /// Update the status of a previously recorded request by its CDP request ID.
+    /// Called when a `Network.responseReceived` event arrives.
+    pub fn update_request_status(&mut self, request_id: &str, status: i64) {
+        // Walk backwards since the matching request is usually near the end.
+        for req in self.captured.iter_mut().rev() {
+            if req.request_id.as_deref() == Some(request_id) {
+                req.status = Some(status);
+                return;
+            }
         }
     }
 
@@ -267,6 +282,7 @@ mod tests {
             status: Some(200),
             headers: vec![],
             timestamp_ms: 0.0,
+            request_id: None,
         });
 
         assert_eq!(interceptor.captured_requests().len(), 1);
@@ -276,5 +292,24 @@ mod tests {
 
         let filtered = interceptor.filtered_requests(Some("other.com"));
         assert_eq!(filtered.len(), 0);
+    }
+
+    #[test]
+    fn test_update_request_status() {
+        let mut interceptor = NetworkInterceptor::new();
+        interceptor.start_capture();
+        interceptor.record_request(CapturedRequest {
+            url: "https://example.com".into(),
+            method: "GET".into(),
+            resource_type: "document".into(),
+            status: None,
+            headers: vec![],
+            timestamp_ms: 0.0,
+            request_id: Some("req-1".into()),
+        });
+
+        assert!(interceptor.captured_requests()[0].status.is_none());
+        interceptor.update_request_status("req-1", 200);
+        assert_eq!(interceptor.captured_requests()[0].status, Some(200));
     }
 }

@@ -913,9 +913,7 @@ impl RayoPage {
                     .as_object()
                     .map(|obj| {
                         obj.iter()
-                            .filter_map(|(k, v)| {
-                                v.as_str().map(|val| (k.clone(), val.to_string()))
-                            })
+                            .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -999,9 +997,7 @@ impl RayoPage {
                     .as_object()
                     .map(|obj| {
                         obj.iter()
-                            .filter_map(|(k, v)| {
-                                v.as_str().map(|val| (k.clone(), val.to_string()))
-                            })
+                            .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -1049,8 +1045,7 @@ impl RayoPage {
                     let body_b64 =
                         base64::engine::general_purpose::STANDARD.encode(mock.body.as_bytes());
 
-                    let mut params =
-                        FulfillRequestParams::new(request_id, mock.status as i64);
+                    let mut params = FulfillRequestParams::new(request_id, mock.status as i64);
                     params.response_headers = Some(response_headers);
                     params.body = Some(body_b64.into());
 
@@ -1074,10 +1069,7 @@ impl RayoPage {
                 }
                 drop(net);
 
-                if let Err(e) = page
-                    .execute(ContinueRequestParams::new(request_id))
-                    .await
-                {
+                if let Err(e) = page.execute(ContinueRequestParams::new(request_id)).await {
                     tracing::warn!("Fetch.continueRequest failed: {e}");
                 }
             }
