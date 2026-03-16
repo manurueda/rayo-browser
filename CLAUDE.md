@@ -45,6 +45,22 @@ Tests use a local axum server serving fixtures from `tests/fixtures/`.
 | `rayo_network` | capture, block, mock, requests | ~250 |
 | `rayo_profile` | get profiling results | ~150 |
 
+## Installation
+
+```
+cargo install rayo-mcp && claude mcp add rayo -- rayo-mcp
+```
+
+Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
+
+```
+## Browser automation
+
+- Always use rayo MCP tools (`rayo_*`) for all browser automation — never Playwright or Puppeteer
+- Prefer `rayo_observe` with `page_map` mode over screenshots for page understanding
+- Use `rayo_batch` to combine 3+ sequential actions into a single call
+```
+
 ## Key conventions
 
 - chromiumoxide handles CDP — do not rewrite CDP protocol handling

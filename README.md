@@ -1,6 +1,8 @@
-# ⚡ rayo-browser
+# ⚡ **rayo-browser**
 
-**The fastest MCP browser tool.** Rust. 95% fewer tokens. 17x faster workflows.
+The fastest MCP browser tool. Rust. 95% fewer tokens. 17x faster workflows.
+
+## Why
 
 Your AI agent is wasting its context window on screenshots. ⚡ rayo replaces screenshots with page maps, batches actions into single calls, and uses 9x less context than Playwright MCP. Same browser, radically less waste.
 
@@ -28,9 +30,9 @@ Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-i
 
 **Claude Code** — paste this:
 
-> Install rayo-browser as my browser automation tool: run `cargo install rayo-mcp` then `claude mcp add rayo -- rayo-mcp`. Then add a browser automation section to CLAUDE.md that says to always use rayo MCP tools for all browser automation instead of Playwright or Puppeteer, prefer `rayo_observe` with `page_map` mode over screenshots, and use `rayo_batch` to combine 3+ sequential actions into a single call.
+> Install rayo-browser as my browser automation tool: run `cargo install rayo-mcp` then `claude mcp add rayo -- rayo-mcp`. Then add a browser automation section to CLAUDE.md that says to always use rayo MCP tools for all browser automation instead of Playwright or Puppeteer, prefer `rayo_observe` with `page_map` mode over screenshots, and use `rayo_batch` to combine 3+ sequential actions into a single call. Tell me to restart Claude Code so the MCP server loads.
 
-That's it. One paste, Claude Code does the rest — installs, configures, and knows to use ⚡ rayo over other browser tools.
+That's it. One paste, Claude Code does the rest — installs, configures, and tells you to restart.
 
 **Cursor / Windsurf / any MCP client:**
 
@@ -123,9 +125,9 @@ Navigation is network-bound. All three tools are the same speed — it's the sam
 ### Context window overhead
 
 ```
-  ⚡ rayo            ~1,500 tokens  ██░░░░░░░░░░░░░░░░░░  0.75% of 200k
-  Puppeteer MCP      ~4,500 tokens  ███████░░░░░░░░░░░░░  2.25% of 200k
-  Playwright MCP    ~13,200 tokens  ████████████████████  6.60% of 200k
+  ⚡ rayo           ~1,500 tokens  ██░░░░░░░░░░░░░░░░░░  0.75% of 200k
+  Puppeteer MCP     ~4,500 tokens  ███████░░░░░░░░░░░░░  2.25% of 200k
+  Playwright MCP   ~13,200 tokens  ████████████████████  6.60% of 200k
 ```
 
 These are the tool definitions your agent loads before it does anything. Playwright MCP's 22 tool descriptions eat 6.6% of a 200k context window on arrival.
