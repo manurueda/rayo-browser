@@ -22,6 +22,8 @@ pub mod actions;
 pub mod batch;
 pub mod browser;
 pub mod cookie;
+#[cfg(feature = "cookie-import")]
+pub mod cookie_import;
 pub mod error;
 pub mod network;
 pub mod page_map;

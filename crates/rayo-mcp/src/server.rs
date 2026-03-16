@@ -282,11 +282,11 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_cookie",
-                "Manage browser cookies. Actions: set (inject cookies), get (read, optional domain filter), clear (delete, optional domain filter), save (export to JSON file for persistence), load (import from JSON file to restore auth). Optional tab_id.",
+                "Manage browser cookies. Actions: set (inject cookies), get (read, optional domain filter), clear (delete, optional domain filter), save (export to JSON file), load (import from JSON file), import (read cookies from a real browser — requires browser: chrome/arc/brave/edge/chromium, optional domain filter, optional profile). Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
-                        "action": { "type": "string", "enum": ["set", "get", "clear", "save", "load"] },
+                        "action": { "type": "string", "enum": ["set", "get", "clear", "save", "load", "import"] },
                         "cookies": {
                             "type": "array",
                             "description": "Cookies to set (required for 'set' action)",
@@ -306,8 +306,10 @@ impl RayoServer {
                                 "required": ["name", "value"]
                             }
                         },
-                        "domain": { "type": "string", "description": "Filter by domain (for 'get', 'clear', and 'save' actions)" },
+                        "domain": { "type": "string", "description": "Filter by domain (for 'get', 'clear', 'save', and 'import' actions)" },
                         "path": { "type": "string", "description": "File path for save/load actions (JSON format)" },
+                        "browser": { "type": "string", "enum": ["chrome", "arc", "brave", "edge", "chromium"], "description": "Browser to import cookies from (required for 'import' action)" },
+                        "profile": { "type": "string", "description": "Browser profile name for import (default: 'Default')" },
                         "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
                     },
                     "required": ["action"]

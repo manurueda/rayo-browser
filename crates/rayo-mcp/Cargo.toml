@@ -15,7 +15,7 @@ name = "rayo-mcp"
 path = "src/main.rs"
 
 [dependencies]
-rayo-core = { version = "0.1.0", path = "../rayo-core" }
+rayo-core = { version = "0.1.0", path = "../rayo-core", features = ["cookie-import"] }
 rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
 rayo-rules = { version = "0.1.0", path = "../rayo-rules" }
 chromiumoxide = { workspace = true }
