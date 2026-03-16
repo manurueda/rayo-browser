@@ -6,12 +6,15 @@ The fastest MCP browser automation tool. Rust-powered, benchmark-proven, AI-nati
 
 ```
 AI Agent → MCP (stdio) → rayo-mcp → rayo-core → chromiumoxide → Chrome
-                           │            │
-                        rayo-rules   rayo-profiler
+                           │   │         │
+                           │   │      rayo-profiler
+                        rayo-rules
+                        rayo-updater
 ```
 
-4 crates:
+5 crates:
 - `rayo-profiler` — profiling (no deps on other rayo crates)
+- `rayo-updater` — self-update via cargo-dist/axoupdater (no deps on other rayo crates)
 - `rayo-core` — browser intelligence (page maps, batch, cache, waits, tabs, network)
 - `rayo-rules` — speed rules engine
 - `rayo-mcp` — MCP server binary (7 tools)
@@ -48,8 +51,10 @@ Tests use a local axum server serving fixtures from `tests/fixtures/`.
 ## Installation
 
 ```
-cargo install rayo-mcp && claude mcp add rayo -- rayo-mcp
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh && claude mcp add rayo -- rayo-mcp
 ```
+
+Or from source: `cargo install rayo-mcp && claude mcp add rayo -- rayo-mcp`
 
 Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 
@@ -72,3 +77,7 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - Network interception: NetworkInterceptor in rayo-core, rayo_network tool in rayo-mcp
 - Chrome sandbox auto-detection: only disabled in CI/containers (CI env var, /.dockerenv)
 - Each browser instance gets a unique tempdir (no shared profile conflicts)
+- Auto-update: rayo-updater checks GitHub Releases on startup (background), replaces binary via axoupdater
+- Auto-update state stored in ~/.rayo/ (last-check, update-marker, lock)
+- Disable auto-update: RAYO_NO_UPDATE=1
+- Release pipeline: cargo-dist builds platform binaries on git tag push

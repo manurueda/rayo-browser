@@ -626,11 +626,20 @@ pub async fn handle_profile(
         .get("format")
         .and_then(|v| v.as_str())
         .unwrap_or("ai_summary");
-    let text = match format {
+    let mut text = match format {
         "json" => profiler.export_json(),
         "markdown" => profiler.export_markdown(),
         "chrome_trace" => profiler.export_chrome_trace(),
         _ => profiler.export_ai_summary(),
     };
+
+    // Append version info for human-readable formats
+    if format != "json" && format != "chrome_trace" {
+        text.push_str(&format!(
+            "VERSION: rayo-mcp v{}\n",
+            env!("CARGO_PKG_VERSION")
+        ));
+    }
+
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }

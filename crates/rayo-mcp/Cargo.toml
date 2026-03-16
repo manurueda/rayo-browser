@@ -18,6 +18,7 @@ path = "src/main.rs"
 rayo-core = { version = "0.1.0", path = "../rayo-core", features = ["cookie-import"] }
 rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
 rayo-rules = { version = "0.1.0", path = "../rayo-rules" }
+rayo-updater = { version = "0.1.0", path = "../rayo-updater" }
 chromiumoxide = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

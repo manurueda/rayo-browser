@@ -4,6 +4,7 @@ members = [
     "crates/rayo-core",
     "crates/rayo-profiler",
     "crates/rayo-rules",
+    "crates/rayo-updater",
     "crates/rayo-mcp",
     "bench",
 ]
@@ -31,3 +32,8 @@ futures = "0.3"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

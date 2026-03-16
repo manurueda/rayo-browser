@@ -2,10 +2,10 @@
 
 ## P1: Pre-launch
 
-### Publish to crates.io + cargo-dist binary releases
-- Publish rayo-profiler → rayo-rules → rayo-core → rayo-mcp in dependency order
-- Add cargo-dist for pre-built binaries (macOS arm64/x86_64, Linux x86_64)
-- Verify `cargo install rayo-mcp` works end-to-end
+### Publish to crates.io + first release
+- Publish rayo-profiler → rayo-rules → rayo-updater → rayo-core → rayo-mcp in dependency order
+- Tag v0.1.0 to trigger cargo-dist release (pre-built binaries for macOS arm64/x86_64, Linux x86_64)
+- Verify auto-update works end-to-end (install old version, tag new, check update fires)
 
 ### CDP input events for click/type
 - Replace JS `el.click()` with `Input.dispatchMouseEvent` (real mouse events, handles overlays)
@@ -41,6 +41,11 @@
 - Check `el.readOnly || el.disabled` before type_text, return error
 - Check `history.length` before back/forward (already partially done)
 - Check page `document.readyState` before screenshot
+
+### Auto-update enhancements
+- Update channels (stable/beta) — let users opt into pre-release versions
+- Version telemetry (opt-in, anonymous) — see fleet version distribution for rollout confidence
+- Extract rayo-updater as a generic MCP tool auto-updater crate on crates.io
 
 ## P3: Future
 
