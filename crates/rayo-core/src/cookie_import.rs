@@ -268,12 +268,15 @@ fn read_cookies_from_db(
 
     // Read the cookie database version from the meta table.
     // Version 24+ prepends a 32-byte SHA256 hash to the encrypted value.
+    // The value column is TEXT in SQLite, so read as string and parse.
     let db_version: u32 = conn
         .query_row(
             "SELECT value FROM meta WHERE key = 'version'",
             [],
-            |row| row.get(0),
+            |row| row.get::<_, String>(0),
         )
+        .ok()
+        .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
     let base_query = "SELECT host_key, name, value, encrypted_value, path, \
@@ -408,7 +411,6 @@ fn decrypt_cookie_value(encrypted: &[u8], key: &[u8; 16], db_version: u32) -> Re
 
             // Cookie DB version 24+ prepends a 32-byte SHA256 hash of the
             // cookie's domain to the encrypted value. Strip it.
-            // https://github.com/nicholasxjy/pycookiecheat/blob/main/src/pycookiecheat/chrome.py#L92-L96
             if db_version >= 24 && plaintext.len() > 32 {
                 plaintext = plaintext[32..].to_vec();
             }
@@ -524,5 +526,36 @@ mod tests {
         let raw = b"plaintext_value";
         let result = decrypt_cookie_value(raw, &key, 0).unwrap();
         assert_eq!(result, "plaintext_value");
+    }
+
+    #[test]
+    fn real_chrome_import() {
+        // Skip if Chrome cookies DB doesn't exist
+        let db = BrowserType::Chrome.cookie_db_path("Default");
+        if !db.exists() {
+            eprintln!("Chrome not installed, skipping");
+            return;
+        }
+
+        match import_cookies(BrowserType::Chrome, Some("github.com"), None) {
+            Ok(cookies) => {
+                eprintln!("Imported {} cookies for github.com", cookies.len());
+                for c in &cookies {
+                    let v = if c.value.len() > 30 {
+                        format!("{}...", &c.value[..30])
+                    } else {
+                        c.value.clone()
+                    };
+                    eprintln!("  {} = {}", c.name, v);
+                }
+                assert!(
+                    !cookies.is_empty(),
+                    "Should import at least one cookie from Chrome for github.com"
+                );
+            }
+            Err(e) => {
+                eprintln!("Import error (may be Keychain): {e}");
+            }
+        }
     }
 }
