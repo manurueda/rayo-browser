@@ -135,6 +135,7 @@ mod tests {
                     href: None,
                     selector: "input[name=\"username\"]".into(),
                     state: vec![],
+                    bbox: None,
                 },
                 InteractiveElement {
                     id: 1,
@@ -150,6 +151,7 @@ mod tests {
                     href: None,
                     selector: "input[name=\"password\"]".into(),
                     state: vec![],
+                    bbox: None,
                 },
             ],
             headings: vec!["Sign In".into()],
@@ -180,6 +182,7 @@ mod tests {
                 href: None,
                 selector: "input[name=\"search\"]".into(),
                 state: vec![],
+                bbox: None,
             }],
             headings: vec!["Dashboard".into()],
             text_summary: "Welcome to your dashboard".into(),

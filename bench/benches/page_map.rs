@@ -28,6 +28,7 @@ fn make_page_map(n_elements: usize) -> PageMap {
             href: None,
             selector: format!("input[name='field_{i}']"),
             state: vec![],
+            bbox: None,
         })
         .collect();
 
