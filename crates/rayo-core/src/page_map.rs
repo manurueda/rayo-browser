@@ -103,9 +103,15 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
             item.label = el.placeholder;
         }
 
-        // Text content (for buttons, links)
+        // Role (extracted early so text extraction can check it)
+        const role = el.getAttribute('role');
+        if (role) item.role = role;
+
+        // Text content (for buttons, links, and ARIA role equivalents)
         const text = el.textContent?.trim();
-        if (text && text.length < 100 && (el.tagName === 'BUTTON' || el.tagName === 'A')) {
+        const isTextElement = el.tagName === 'BUTTON' || el.tagName === 'A'
+            || role === 'button' || role === 'link' || role === 'tab';
+        if (text && text.length < 100 && isTextElement) {
             item.text = text;
         }
 
@@ -127,10 +133,6 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
                 item.options = Array.from(group).map(r => r.value);
             }
         }
-
-        // Role
-        const role = el.getAttribute('role');
-        if (role) item.role = role;
 
         // Href (links) — truncate long URLs
         if (el.href) item.href = el.href.length > 120 ? el.href.slice(0, 120) : el.href;
