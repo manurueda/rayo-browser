@@ -9,19 +9,19 @@ Your AI agent is wasting its context window on screenshots. ⚡ rayo replaces sc
 ```
                               Speed                    Tokens
 Wikipedia Research
-  ⚡ rayo              132ms  ██░░░░░░░░░        5,453  █░░░░░░░░░░░░░░░░░░░
-  Playwright          204ms  ███░░░░░░░░      100,367  ████████████████████
-                                                                 95% fewer
+  ⚡ rayo              136ms  ██░░░░░░░░░        5,597  █░░░░░░░░░░░░░░░░░░░
+  Playwright          229ms  ███░░░░░░░░      100,367  ████████████████████
+                               1.7x faster              94% fewer
 
 Form Fill + Submit
-  ⚡ rayo              251ms  ████░░░░░░░        3,690  ███░░░░░░░░░░░░░░░░░
-  Playwright          411ms  ██████░░░░░       23,311  ████████████████████
-                                1.6x faster              84% fewer
+  ⚡ rayo              190ms  ███░░░░░░░░        3,685  ███░░░░░░░░░░░░░░░░░
+  Playwright          346ms  █████░░░░░░       23,311  ████████████████████
+                               1.8x faster              84% fewer
 
 HN Browse + Read
-  ⚡ rayo              212ms  █░░░░░░░░░░        6,961  ██░░░░░░░░░░░░░░░░░░
-  Playwright        3,723ms  ████████████      75,395  ████████████████████
-                               17.6x faster              91% fewer
+  ⚡ rayo              199ms  █░░░░░░░░░░        7,058  ██░░░░░░░░░░░░░░░░░░
+  Playwright        1,274ms  ████████████      75,914  ████████████████████
+                               6.4x faster              91% fewer
 ```
 
 Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-it)
@@ -122,9 +122,9 @@ Screenshots take the same 17ms everywhere — it's Chrome's rendering pipeline. 
 
 | Site | ⚡ rayo | Playwright | Puppeteer |
 |------|---------|------------|-----------|
-| example.com | 3ms | 3ms | 13ms |
-| Wikipedia | 72ms | 69ms | 81ms |
-| Hacker News | 81ms | 75ms | 89ms |
+| example.com | 23ms | 18ms | 32ms |
+| Wikipedia | 76ms | 72ms | 84ms |
+| Hacker News | 75ms | 75ms | 89ms |
 
 Navigation is network-bound. All three tools are the same speed — it's the same browser. The wins come from what happens *after* the page loads.
 
@@ -143,13 +143,13 @@ These are the tool definitions your agent loads before it does anything. Playwri
 Every ⚡ rayo operation is timed. Call `rayo_profile` to see where time goes:
 
 ```
-RAYO PROFILE (3.4s total, benchmark suite)
-  navigation: 3379ms (84%) | 47 ops | avg 72ms  | p95 167ms
-  screenshot:  241ms  (6%) | 13 ops | avg 19ms  | p95 25ms
-  page_map:    140ms  (4%) | 77 ops | avg 1.8ms | p95 5.2ms
-  batch:       113ms  (3%) |  1 op  | avg 113ms
-  dom.mutate:  113ms  (3%) |  4 ops | avg 28ms  | p95 34ms
-SLOWEST: goto(wikipedia.org) 431ms
+RAYO PROFILE (3.6s total, benchmark suite)
+  navigation: 3457ms (45%) | 47 ops | avg 74ms  | p95 173ms
+  page_map:    170ms  (2%) | 77 ops | avg 2.2ms | p95 12ms
+  screenshot:  244ms  (3%) | 13 ops | avg 19ms  | p95 25ms
+  batch:        75ms  (1%) |  1 op  | avg 75ms
+  dom.mutate:   75ms  (1%) |  4 ops | avg 19ms  | p95 23ms
+SLOWEST: goto(wikipedia.org) 453ms
 ```
 
 84% of time is network I/O (navigation). Page maps average 1.8ms. The tool itself is not the bottleneck — the internet is.
@@ -158,13 +158,15 @@ SLOWEST: goto(wikipedia.org) 431ms
 
 | Tool | Does |
 |------|------|
-| `rayo_navigate` | goto, reload, back, forward, tabs |
-| `rayo_observe` | page_map, text, screenshot |
-| `rayo_interact` | click, type, select, scroll |
-| `rayo_batch` | N actions in 1 call |
-| `rayo_cookie` | set, get, clear |
+| `rayo_navigate` | goto (with `wait_until`), reload, back, forward, tabs |
+| `rayo_observe` | page_map (with element state + truncation metadata), text, screenshot |
+| `rayo_interact` | click, hover, type, press (Enter/Tab/Escape), select, scroll |
+| `rayo_batch` | N actions in 1 call (with `abort_on_failure`) |
+| `rayo_cookie` | set, get, clear, save, load, **import from Chrome/Arc/Brave/Edge** |
 | `rayo_network` | capture, block, mock requests |
-| `rayo_profile` | performance data |
+| `rayo_profile` | performance data (ai_summary, json, markdown, chrome_trace) |
+
+**Transparent auth:** Navigate to any authenticated page — ⚡ rayo auto-detects login walls, imports cookies from your real browser, and retries. Zero configuration.
 
 ## 🧪 Reproduce it
 
