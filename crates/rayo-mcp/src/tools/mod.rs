@@ -1,6 +1,6 @@
 //! MCP tool handlers.
 //!
-//! 7 tools, ~2,000 tokens total tool description.
+//! 8 tools, ~2,300 tokens total tool description.
 //! Handlers receive a resolved &RayoPage — tab resolution is done by the server.
 
 use std::sync::Arc;
@@ -642,4 +642,201 @@ pub async fn handle_profile(
     }
 
     Ok(CallToolResult::success(vec![Content::text(text)]))
+}
+
+pub async fn handle_visual(
+    page: &RayoPage,
+    params: &serde_json::Map<String, Value>,
+    profiler: &Arc<Profiler>,
+) -> Result<CallToolResult, McpError> {
+    let action = params
+        .get("action")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| McpError::invalid_params("action is required", None))?;
+
+    let baselines_dir = std::env::current_dir()
+        .unwrap_or_default()
+        .join(".rayo")
+        .join("baselines");
+    let manager = rayo_visual::BaselineManager::new(baselines_dir);
+
+    match action {
+        "capture" => {
+            let _span =
+                profiler.start_span("visual_capture", rayo_profiler::SpanCategory::Screenshot);
+
+            let name = params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| McpError::invalid_params("name is required for capture", None))?;
+            let full_page = params
+                .get("full_page")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let selector = params.get("selector").and_then(|v| v.as_str());
+
+            // Freeze animations for deterministic screenshots
+            page.freeze_animations().await.map_err(internal_err)?;
+
+            let png_bytes = if let Some(sel) = selector {
+                page.screenshot_element(sel).await.map_err(internal_err)?
+            } else {
+                page.screenshot_png(full_page).await.map_err(internal_err)?
+            };
+
+            page.unfreeze_animations().await.map_err(internal_err)?;
+
+            // Get dimensions from the captured PNG
+            let img = image::load_from_memory(&png_bytes).map_err(|e| {
+                McpError::internal_error(format!("Failed to decode screenshot: {e}"), None)
+            })?;
+            let (w, h) = image::GenericImageView::dimensions(&img);
+
+            manager.save(name, &png_bytes, w, h).map_err(internal_err)?;
+
+            let result = serde_json::json!({
+                "action": "capture",
+                "name": name,
+                "new_baseline": true,
+                "dimensions": [w, h],
+            });
+            Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string(&result).unwrap_or_default(),
+            )]))
+        }
+        "compare" => {
+            let _span =
+                profiler.start_span("visual_compare", rayo_profiler::SpanCategory::Screenshot);
+
+            let name = params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| McpError::invalid_params("name is required for compare", None))?;
+            let threshold = params
+                .get("threshold")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.01);
+            let full_page = params
+                .get("full_page")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let selector = params.get("selector").and_then(|v| v.as_str());
+
+            // Freeze animations for deterministic screenshots
+            page.freeze_animations().await.map_err(internal_err)?;
+
+            let current_png = if let Some(sel) = selector {
+                page.screenshot_element(sel).await.map_err(internal_err)?
+            } else {
+                page.screenshot_png(full_page).await.map_err(internal_err)?
+            };
+
+            page.unfreeze_animations().await.map_err(internal_err)?;
+
+            // If baseline doesn't exist, auto-create it
+            if !manager.exists(name) {
+                let img = image::load_from_memory(&current_png).map_err(|e| {
+                    McpError::internal_error(format!("Failed to decode screenshot: {e}"), None)
+                })?;
+                let (w, h) = image::GenericImageView::dimensions(&img);
+                manager
+                    .save(name, &current_png, w, h)
+                    .map_err(internal_err)?;
+
+                let result = serde_json::json!({
+                    "action": "compare",
+                    "name": name,
+                    "new_baseline": true,
+                    "dimensions": [w, h],
+                });
+                return Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string(&result).unwrap_or_default(),
+                )]));
+            }
+
+            let baseline_png = manager.load(name).map_err(internal_err)?;
+
+            let options = rayo_visual::DiffOptions {
+                threshold,
+                ..Default::default()
+            };
+
+            let report = rayo_visual::compare(&baseline_png, &current_png, &options)
+                .map_err(internal_err)?;
+
+            let report_json = serde_json::to_string(&report).unwrap_or_default();
+            Ok(CallToolResult::success(vec![Content::text(report_json)]))
+        }
+        "baseline" => {
+            let _span =
+                profiler.start_span("visual_baseline", rayo_profiler::SpanCategory::Screenshot);
+
+            let mode = params.get("mode").and_then(|v| v.as_str()).ok_or_else(|| {
+                McpError::invalid_params("mode is required for baseline action", None)
+            })?;
+
+            match mode {
+                "list" => {
+                    let list = manager.list().map_err(internal_err)?;
+                    let json = serde_json::to_string(&list).unwrap_or_default();
+                    Ok(CallToolResult::success(vec![Content::text(json)]))
+                }
+                "delete" => {
+                    let name = params.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+                        McpError::invalid_params("name is required for delete", None)
+                    })?;
+                    manager.delete(name).map_err(internal_err)?;
+                    Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Deleted baseline: {name}"
+                    ))]))
+                }
+                "update" => {
+                    let name = params.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+                        McpError::invalid_params("name is required for update", None)
+                    })?;
+                    let full_page = params
+                        .get("full_page")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let selector = params.get("selector").and_then(|v| v.as_str());
+
+                    page.freeze_animations().await.map_err(internal_err)?;
+
+                    let png_bytes = if let Some(sel) = selector {
+                        page.screenshot_element(sel).await.map_err(internal_err)?
+                    } else {
+                        page.screenshot_png(full_page).await.map_err(internal_err)?
+                    };
+
+                    page.unfreeze_animations().await.map_err(internal_err)?;
+
+                    let img = image::load_from_memory(&png_bytes).map_err(|e| {
+                        McpError::internal_error(format!("Failed to decode screenshot: {e}"), None)
+                    })?;
+                    let (w, h) = image::GenericImageView::dimensions(&img);
+
+                    manager.save(name, &png_bytes, w, h).map_err(internal_err)?;
+
+                    let result = serde_json::json!({
+                        "action": "baseline",
+                        "mode": "update",
+                        "name": name,
+                        "new_baseline": true,
+                        "dimensions": [w, h],
+                    });
+                    Ok(CallToolResult::success(vec![Content::text(
+                        serde_json::to_string(&result).unwrap_or_default(),
+                    )]))
+                }
+                _ => Err(McpError::invalid_params(
+                    format!("Unknown baseline mode: {mode}. Use list, delete, or update."),
+                    None,
+                )),
+            }
+        }
+        _ => Err(McpError::invalid_params(
+            format!("Unknown visual action: {action}. Use capture, compare, or baseline."),
+            None,
+        )),
+    }
 }

@@ -270,11 +270,9 @@ fn read_cookies_from_db(
     // Version 24+ prepends a 32-byte SHA256 hash to the encrypted value.
     // The value column is TEXT in SQLite, so read as string and parse.
     let db_version: u32 = conn
-        .query_row(
-            "SELECT value FROM meta WHERE key = 'version'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
+        .query_row("SELECT value FROM meta WHERE key = 'version'", [], |row| {
+            row.get::<_, String>(0)
+        })
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
@@ -392,7 +390,11 @@ fn process_row(
 ///
 /// Chromium encrypts cookie values with a "v10" prefix followed by
 /// AES-128-CBC ciphertext (IV = 0x00*16) with PKCS7 padding.
-fn decrypt_cookie_value(encrypted: &[u8], key: &[u8; 16], db_version: u32) -> Result<String, RayoError> {
+fn decrypt_cookie_value(
+    encrypted: &[u8],
+    key: &[u8; 16],
+    db_version: u32,
+) -> Result<String, RayoError> {
     if encrypted.len() < 3 {
         return String::from_utf8(encrypted.to_vec())
             .map_err(|e| RayoError::CookieError(format!("Cookie value is not valid UTF-8: {e}")));

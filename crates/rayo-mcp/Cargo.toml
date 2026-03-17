@@ -19,6 +19,8 @@ rayo-core = { version = "0.1.0", path = "../rayo-core", features = ["cookie-impo
 rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
 rayo-rules = { version = "0.1.0", path = "../rayo-rules" }
 rayo-updater = { version = "0.1.0", path = "../rayo-updater" }
+rayo-visual = { version = "0.1.0", path = "../rayo-visual" }
+image = { version = "0.25", default-features = false, features = ["png"] }
 chromiumoxide = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

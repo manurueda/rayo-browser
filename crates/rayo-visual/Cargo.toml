@@ -1,0 +1,22 @@
+[package]
+name = "rayo-visual"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust-native image diff engine for rayo-browser visual testing"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+dssim-core = "3"
+rgb = "0.8"
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "diff_bench"
+harness = false

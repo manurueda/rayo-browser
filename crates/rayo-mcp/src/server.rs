@@ -1,6 +1,6 @@
 //! MCP server: wires rmcp with chromiumoxide via rayo-core.
 //!
-//! 7 tools, multi-tab architecture, network interception.
+//! 8 tools, multi-tab architecture, network interception, visual testing.
 
 use std::sync::Arc;
 
@@ -369,6 +369,23 @@ impl RayoServer {
                     }
                 })),
             ),
+            Tool::new(
+                "rayo_visual",
+                "Visual testing: screenshot comparison and baseline management. Actions: capture (save screenshot as baseline — requires name), compare (diff current page against baseline — requires name, optional threshold default 0.01), baseline (manage baselines — requires mode: list/delete/update). Freezes animations for deterministic captures. Baselines stored in .rayo/baselines/. Optional tab_id, full_page, selector.",
+                json_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["capture", "compare", "baseline"] },
+                        "name": { "type": "string", "description": "Baseline name (required for capture, compare, baseline delete/update)" },
+                        "mode": { "type": "string", "enum": ["list", "delete", "update"], "description": "Sub-action for baseline management" },
+                        "threshold": { "type": "number", "description": "Diff threshold 0.0-1.0 (default: 0.01 = 1%)", "default": 0.01 },
+                        "full_page": { "type": "boolean", "description": "Capture full page screenshot", "default": false },
+                        "selector": { "type": "string", "description": "CSS selector for element screenshot" },
+                        "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
+                    },
+                    "required": ["action"]
+                })),
+            ),
         ]
     }
 }
@@ -471,6 +488,11 @@ impl ServerHandler for RayoServer {
                     tools::handle_network(page, &self.network, &params).await
                 }
                 "rayo_profile" => tools::handle_profile(&self.profiler, &params).await,
+                "rayo_visual" => {
+                    let tabs = self.tabs.lock().await;
+                    let page = Self::resolve_page(&tabs, tab_id).await?;
+                    tools::handle_visual(page, &params, &self.profiler).await
+                }
                 _ => Err(McpError::invalid_request(
                     format!("Unknown tool: {tool_name}"),
                     None,
@@ -518,7 +540,7 @@ pub async fn run() -> Result<()> {
     let transport = rmcp::transport::io::stdio();
 
     tracing::info!(
-        "rayo-mcp v{} starting on stdio (7 tools)",
+        "rayo-mcp v{} starting on stdio (8 tools)",
         env!("CARGO_PKG_VERSION")
     );
 

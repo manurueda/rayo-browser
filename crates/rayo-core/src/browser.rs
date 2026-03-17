@@ -30,6 +30,22 @@ use crate::page_map::{EXTRACT_PAGE_MAP_JS, PageMap};
 use crate::selector_cache::SelectorCache;
 use rayo_profiler::{Profiler, SpanCategory};
 
+/// Viewport configuration for the browser window.
+#[derive(Debug, Clone)]
+pub struct ViewportConfig {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Default for ViewportConfig {
+    fn default() -> Self {
+        Self {
+            width: 1280,
+            height: 720,
+        }
+    }
+}
+
 /// Rayo browser wrapper with profiling and caching.
 pub struct RayoBrowser {
     browser: CdpBrowser,
@@ -46,8 +62,23 @@ impl RayoBrowser {
         Ok(browser)
     }
 
-    /// Launch a new headless Chrome instance.
+    /// Launch with a shared profiler and custom viewport.
+    pub async fn launch_with_config(
+        profiler: Profiler,
+        viewport: ViewportConfig,
+    ) -> Result<Self, RayoError> {
+        let mut browser = Self::launch_viewport(viewport).await?;
+        browser.profiler = profiler;
+        Ok(browser)
+    }
+
+    /// Launch a new headless Chrome instance with default viewport (1280x720).
     pub async fn launch() -> Result<Self, RayoError> {
+        Self::launch_viewport(ViewportConfig::default()).await
+    }
+
+    /// Launch a new headless Chrome instance with custom viewport.
+    pub async fn launch_viewport(viewport: ViewportConfig) -> Result<Self, RayoError> {
         let user_data_dir = tempfile::tempdir()
             .map_err(|e| RayoError::Cdp(format!("Failed to create temp dir: {e}")))?;
 
@@ -61,7 +92,7 @@ impl RayoBrowser {
             .arg("--no-first-run")
             .arg("--disable-background-timer-throttling")
             .arg("--disable-default-apps")
-            .window_size(1280, 720)
+            .window_size(viewport.width, viewport.height)
             .user_data_dir(user_data_dir.path());
 
         // Only disable sandbox in CI/containers where it causes launch failures
@@ -633,6 +664,129 @@ impl RayoPage {
     /// Screenshot MIME type for MCP responses.
     pub fn screenshot_mime() -> &'static str {
         "image/jpeg"
+    }
+
+    /// Take a PNG screenshot (lossless, for visual testing).
+    /// Returns raw PNG bytes (not base64).
+    pub async fn screenshot_png(&self, full_page: bool) -> Result<Vec<u8>, RayoError> {
+        let _span = self
+            .profiler
+            .start_span("screenshot_png", SpanCategory::Screenshot);
+        let clip = if full_page {
+            None
+        } else {
+            let dims = self
+                .page
+                .evaluate("[window.innerWidth, window.innerHeight]")
+                .await?;
+            let arr: Vec<f64> = dims.into_value().unwrap_or_default();
+            let (w, h) = (
+                arr.first().copied().unwrap_or(1280.0),
+                arr.get(1).copied().unwrap_or(720.0),
+            );
+            Some(Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: w,
+                height: h,
+                scale: 1.0,
+            })
+        };
+        let params = CaptureScreenshotParams {
+            format: Some(CaptureScreenshotFormat::Png),
+            quality: None,
+            clip,
+            optimize_for_speed: Some(false),
+            ..Default::default()
+        };
+        Ok(self.page.screenshot(params).await?)
+    }
+
+    /// Take a screenshot of a specific element by CSS selector.
+    /// Uses the element's bounding box as the clip region.
+    /// Returns raw PNG bytes.
+    pub async fn screenshot_element(&self, selector: &str) -> Result<Vec<u8>, RayoError> {
+        let _span = self
+            .profiler
+            .start_span("screenshot_element", SpanCategory::Screenshot);
+
+        // Get bounding box via JavaScript
+        let js = format!(
+            r#"(() => {{
+                const el = document.querySelector({sel});
+                if (!el) return null;
+                el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+                const rect = el.getBoundingClientRect();
+                return {{ x: rect.x, y: rect.y, width: rect.width, height: rect.height }};
+            }})()"#,
+            sel = serde_json::to_string(selector).unwrap_or_default()
+        );
+        let result = self.page.evaluate(js).await?;
+        let bbox: serde_json::Value = result.into_value().unwrap_or_default();
+
+        if bbox.is_null() {
+            return Err(RayoError::ElementNotFound {
+                selector: selector.to_string(),
+            });
+        }
+
+        let x = bbox["x"].as_f64().unwrap_or(0.0);
+        let y = bbox["y"].as_f64().unwrap_or(0.0);
+        let w = bbox["width"].as_f64().unwrap_or(0.0);
+        let h = bbox["height"].as_f64().unwrap_or(0.0);
+
+        if w <= 0.0 || h <= 0.0 {
+            return Err(RayoError::ElementNotFound {
+                selector: format!("{selector} (zero dimensions: {w}x{h})"),
+            });
+        }
+
+        let params = CaptureScreenshotParams {
+            format: Some(CaptureScreenshotFormat::Png),
+            quality: None,
+            clip: Some(Viewport {
+                x,
+                y,
+                width: w,
+                height: h,
+                scale: 1.0,
+            }),
+            optimize_for_speed: Some(false),
+            ..Default::default()
+        };
+        Ok(self.page.screenshot(params).await?)
+    }
+
+    /// Freeze CSS animations and transitions for stable visual testing screenshots.
+    /// Returns a guard that removes the injected CSS when dropped.
+    pub async fn freeze_animations(&self) -> Result<(), RayoError> {
+        let _span = self
+            .profiler
+            .start_span("freeze_animations", SpanCategory::DomMutate);
+        self.page
+            .evaluate(
+                r#"(() => {
+                    const style = document.createElement('style');
+                    style.id = '__rayo_freeze_animations';
+                    style.textContent = '*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; transition-delay: 0s !important; }';
+                    document.head.appendChild(style);
+                })()"#,
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Remove the animation freeze CSS injection.
+    pub async fn unfreeze_animations(&self) -> Result<(), RayoError> {
+        self.page
+            .evaluate(
+                r#"(() => {
+                    const el = document.getElementById('__rayo_freeze_animations');
+                    if (el) el.remove();
+                })()"#,
+            )
+            .await?;
+        Ok(())
     }
 
     /// Click an element by selector or page map ID.

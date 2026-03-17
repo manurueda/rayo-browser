@@ -8,15 +8,19 @@ The fastest MCP browser automation tool. Rust-powered, benchmark-proven, AI-nati
 AI Agent → MCP (stdio) → rayo-mcp → rayo-core → chromiumoxide → Chrome
                            │   │         │
                            │   │      rayo-profiler
-                        rayo-rules
-                        rayo-updater
+                        rayo-rules      │
+                        rayo-updater rayo-visual
+
+rayo-test CLI/UI → rayo-core + rayo-visual → Chrome
 ```
 
-5 crates:
+7 crates:
 - `rayo-profiler` — profiling (no deps on other rayo crates)
 - `rayo-updater` — self-update via cargo-dist/axoupdater (no deps on other rayo crates)
-- `rayo-core` — browser intelligence (page maps, batch, cache, waits, tabs, network)
+- `rayo-visual` — image diff engine: YIQ pixel diff, SSIM, clustering, baselines (no deps on other rayo crates)
+- `rayo-core` — browser intelligence (page maps, batch, cache, waits, tabs, network, visual extensions)
 - `rayo-rules` — speed rules engine
+- `rayo-test` — E2E test runner: YAML tests, assertions, reports, web server
 - `rayo-mcp` — MCP server binary (7 tools)
 
 ## Commands
@@ -26,6 +30,8 @@ cargo build --workspace          # Build all
 cargo test --workspace           # Run all tests (needs Chrome)
 cargo bench                      # Run criterion benchmarks
 cargo run --bin rayo-mcp         # Start MCP server
+cargo run --bin rayo-test -- run # Run E2E test suites
+cargo run --bin rayo-test -- ui  # Start test runner web UI
 cargo clippy --workspace         # Lint
 cargo fmt --check --all          # Check formatting
 ```
@@ -81,3 +87,14 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - Auto-update state stored in ~/.rayo/ (last-check, update-marker, lock)
 - Disable auto-update: RAYO_NO_UPDATE=1
 - Release pipeline: cargo-dist builds platform binaries on git tag push
+
+## Visual testing (rayo-test)
+- Test definitions in `.rayo/tests/*.test.yaml`
+- Baselines stored in `.rayo/baselines/` as PNG + metadata JSON
+- rayo-visual is a pure image crate — zero rayo deps, publishable independently
+- Diff pipeline: hash pre-filter → YIQ pixel diff (AA detection) → SSIM → clustering → overlay
+- Page maps include bounding boxes (getBoundingClientRect) for visual testing
+- Animation freeze via CSS injection before screenshot capture
+- PNG for visual testing, JPEG for regular screenshots
+- Viewport configurable via ViewportConfig (default 1280x720)
+- rayo-test web server: REST API + WebSocket for live test updates

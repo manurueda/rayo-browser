@@ -1,0 +1,11 @@
+name: Basic Navigation Test
+steps:
+  - name: Navigate to example page
+    navigate: https://example.com
+    assert:
+      - text_contains: Example Domain
+  - name: Verify heading exists
+    assert:
+      - page_map_contains:
+          tag: a
+          text: More information

@@ -31,7 +31,8 @@ pub mod persist;
 pub mod selector_cache;
 pub mod tab_manager;
 
-pub use browser::{RayoBrowser, RayoPage};
+pub use browser::{RayoBrowser, RayoPage, ViewportConfig};
 pub use cookie::{CookieInfo, SameSite, SetCookie};
 pub use error::RayoError;
+pub use page_map::BoundingBox;
 pub use tab_manager::{TabId, TabInfo, TabManager};

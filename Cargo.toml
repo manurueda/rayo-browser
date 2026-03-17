@@ -5,6 +5,8 @@ members = [
     "crates/rayo-profiler",
     "crates/rayo-rules",
     "crates/rayo-updater",
+    "crates/rayo-visual",
+    "crates/rayo-test",
     "crates/rayo-mcp",
     "bench",
 ]

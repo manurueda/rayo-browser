@@ -1,0 +1,32 @@
+[package]
+name = "rayo-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "AI-native E2E test runner for rayo-browser"
+
+[[bin]]
+name = "rayo-test"
+path = "src/main.rs"
+
+[dependencies]
+rayo-core = { path = "../rayo-core", features = ["cookie-import"] }
+rayo-visual = { path = "../rayo-visual" }
+rayo-profiler = { path = "../rayo-profiler" }
+
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+clap = { version = "4", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+glob = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }

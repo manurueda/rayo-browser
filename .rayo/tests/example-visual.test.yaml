@@ -1,0 +1,30 @@
+name: Visual Regression Test
+viewport:
+  width: 1280
+  height: 720
+steps:
+  - name: Load visual test page
+    navigate: http://localhost:3456/visual-test.html
+    assert:
+      - text_contains: Visual Test Page
+      - page_map_contains:
+          tag: button
+          text: Call to Action
+  - name: Check page screenshot
+    assert:
+      - screenshot:
+          name: visual-test-page
+          threshold: 0.01
+  - name: Check hero section
+    assert:
+      - screenshot:
+          name: hero-section
+          selector: ".hero"
+          threshold: 0.01
+  - name: Fill form
+    batch:
+      - { action: type, selector: "input[name='name']", value: "Test User" }
+      - { action: type, selector: "input[name='email']", value: "test@example.com" }
+    assert:
+      - page_map_contains:
+          selector: "input[name='name']"

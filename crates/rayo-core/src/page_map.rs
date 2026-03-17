@@ -29,6 +29,15 @@ pub struct PageMap {
     pub truncated: Option<bool>,
 }
 
+/// Bounding box of an element in viewport coordinates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundingBox {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 /// An interactive element on the page.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InteractiveElement {
@@ -69,6 +78,9 @@ pub struct InteractiveElement {
     /// Element states (disabled, readonly, required, checked, hidden).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state: Vec<String>,
+    /// Bounding box in viewport coordinates (for visual testing).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bbox: Option<BoundingBox>,
 }
 
 /// JavaScript to extract the page map from the browser.
@@ -159,6 +171,15 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
         if (el.hidden || (el.type === 'hidden')) state.push('hidden');
         if (state.length > 0) item.state = state;
 
+        // Bounding box for visual testing
+        try {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                item.bbox = { x: Math.round(rect.x * 10) / 10, y: Math.round(rect.y * 10) / 10,
+                              width: Math.round(rect.width * 10) / 10, height: Math.round(rect.height * 10) / 10 };
+            }
+        } catch(e) {}
+
         interactive.push(item);
         count++;
     });
@@ -227,6 +248,12 @@ mod tests {
                 href: None,
                 selector: "input[name=\"q\"]".into(),
                 state: vec![],
+                bbox: Some(BoundingBox {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 30.0,
+                }),
             }],
             headings: vec!["Welcome".into()],
             text_summary: "A simple example page.".into(),
