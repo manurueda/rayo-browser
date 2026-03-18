@@ -6,10 +6,6 @@ license.workspace = true
 repository.workspace = true
 description = "AI-native E2E test runner and dashboard for rayo-browser"
 
-[[bin]]
-name = "rayo-ui"
-path = "src/main.rs"
-
 [dependencies]
 rayo-core = { path = "../rayo-core", features = ["cookie-import"] }
 rayo-visual = { path = "../rayo-visual" }
