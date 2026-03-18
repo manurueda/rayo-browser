@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Welcome - rayo-ui{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto py-12">
+  <div class="text-center mb-8">
+    <h1 class="text-3xl font-bold mb-2">&#9889; Welcome to rayo<span class="text-rayo-500">-ui</span></h1>
+    <p class="text-gray-500 dark:text-gray-400">AI-native E2E test runner for rayo-browser</p>
+  </div>
+
+  {% if discovering %}
+  {# Auto-discover in progress #}
+  <div hx-ext="ws" ws-connect="/ws/live" class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-6">
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-4 h-4 border-2 border-rayo-500 border-t-transparent rounded-full animate-spin"></div>
+      <span class="font-medium">Auto-discovering tests...</span>
+    </div>
+    <div id="discover-progress" class="text-sm text-gray-500 dark:text-gray-400">
+      Analyzing your project and exploring pages...
+    </div>
+    <div id="discover-complete" class="hidden mt-4">
+      <a href="/" class="px-4 py-2 bg-rayo-500 hover:bg-rayo-600 text-white rounded-lg text-sm font-medium">
+        View Dashboard &rarr;
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Claude Code prompt #}
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 mb-6">
+    <h2 class="font-medium mb-3">Get started with Claude Code</h2>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">Copy this prompt into Claude Code to auto-generate tests for your project:</p>
+    <div class="relative">
+      <pre class="bg-gray-100 dark:bg-gray-900 rounded-lg p-4 text-sm overflow-x-auto"><code>Discover and generate E2E tests for my project using rayo-ui discover &lt;url&gt;, then open the dashboard with rayo-ui ui</code></pre>
+      <button onclick="navigator.clipboard.writeText('Discover and generate E2E tests for my project using rayo-ui discover <url>, then open the dashboard with rayo-ui ui')"
+        class="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 rounded transition-colors">
+        Copy
+      </button>
+    </div>
+  </div>
+
+  {# Manual setup #}
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-6">
+    <h2 class="font-medium mb-3">Or set up manually</h2>
+    <div class="space-y-3 text-sm text-gray-500 dark:text-gray-400">
+      <p>1. Create test files in <code class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-900 rounded">{{ tests_dir }}</code></p>
+      <p>2. Run <code class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-900 rounded">rayo-ui discover &lt;url&gt;</code> to auto-generate tests</p>
+      <p>3. Run <code class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-900 rounded">rayo-ui run</code> to execute tests</p>
+      <p>4. Run <code class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-900 rounded">rayo-ui ui</code> to open this dashboard</p>
+    </div>
+    {% if !chrome_available %}
+    <div class="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+      <p class="text-sm text-yellow-700 dark:text-yellow-400">
+        <strong>Chrome not found.</strong> Install Chrome or Chromium to enable auto-discovery and browser testing.
+      </p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

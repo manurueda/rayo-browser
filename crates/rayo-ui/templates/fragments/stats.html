@@ -1,0 +1,22 @@
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+    <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Pass Rate</div>
+    <div class="text-2xl font-bold {% if stats.pass_rate >= 80.0 %}text-green-500{% elif stats.pass_rate >= 50.0 %}text-yellow-500{% else %}text-red-500{% endif %}">
+      {{ "{:.0}"|format(stats.pass_rate) }}%
+    </div>
+  </div>
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+    <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Suites</div>
+    <div class="text-2xl font-bold {% if stats.passed_suites == stats.total_suites %}text-green-500{% else %}text-rayo-400{% endif %}">
+      {{ stats.passed_suites }}/{{ stats.total_suites }}
+    </div>
+  </div>
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+    <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Steps</div>
+    <div class="text-2xl font-bold text-rayo-400">{{ stats.total_steps }}</div>
+  </div>
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+    <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Duration</div>
+    <div class="text-2xl font-bold text-gray-700 dark:text-gray-300">{{ crate::templates::fmt_duration(stats.total_duration_ms) }}</div>
+  </div>
+</div>

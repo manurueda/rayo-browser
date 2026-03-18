@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Suites - rayo-ui{% endblock %}
+{% block nav_suites %}text-rayo-500 font-medium{% endblock %}
+
+{% block content %}
+<h1 class="text-xl font-semibold mb-6">Test Suites</h1>
+
+{% if results.is_empty() %}
+<p class="text-gray-500 dark:text-gray-400 text-center py-12">No test results yet. Run tests from the Dashboard or Live page.</p>
+{% else %}
+<div class="space-y-4">
+  {% for result in results %}
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+    <div class="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900"
+         onclick="this.nextElementSibling.classList.toggle('hidden')">
+      <div class="flex items-center gap-3">
+        {% if result.pass %}
+        <span class="text-green-500 font-bold">&#10003;</span>
+        <span class="px-2 py-0.5 text-xs font-medium rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">PASS</span>
+        {% else %}
+        <span class="text-red-500 font-bold">&#10007;</span>
+        <span class="px-2 py-0.5 text-xs font-medium rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">FAIL</span>
+        {% endif %}
+        <span class="font-medium">{{ result.name }}</span>
+      </div>
+      <div class="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+        <span>{{ result.passed_steps }}/{{ result.total_steps }} steps</span>
+        <span>{{ crate::templates::fmt_duration(result.duration_ms) }}</span>
+        <button hx-post="/api/run/{{ result.name }}" hx-target="closest div.border" hx-swap="outerHTML"
+          hx-indicator="find .run-indicator"
+          class="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+          onclick="event.stopPropagation()">
+          Re-run <span class="run-indicator htmx-indicator">&#8987;</span>
+        </button>
+      </div>
+    </div>
+    <div class="hidden border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 p-4">
+      {% for step in result.steps %}
+      <div class="flex items-start gap-2 py-2 {% if !loop.last %}border-b border-gray-100 dark:border-gray-800/50{% endif %}">
+        {% if step.pass %}
+        <span class="text-green-500 text-sm mt-0.5">&#10003;</span>
+        {% else %}
+        <span class="text-red-500 text-sm mt-0.5">&#10007;</span>
+        {% endif %}
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium">{{ step.name }}</span>
+            <span class="px-1.5 py-0.5 text-xs bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded">{{ step.action }}</span>
+            <span class="text-xs text-gray-400">{{ step.duration_ms }}ms</span>
+          </div>
+          {% if let Some(err) = step.error %}
+          <p class="text-sm text-red-500 mt-1">{{ err }}</p>
+          {% endif %}
+          {% for a in step.assertions %}
+          <div class="text-xs mt-1 {% if a.pass %}text-gray-500 dark:text-gray-400{% else %}text-red-400{% endif %}">
+            {% if a.pass %}&#10003;{% else %}&#10007;{% endif %}
+            {{ a.assertion_type }}
+            {% if let Some(msg) = a.message %} &mdash; {{ msg }}{% endif %}
+            {% if a.new_baseline %}<span class="px-1 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs ml-1">new baseline</span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

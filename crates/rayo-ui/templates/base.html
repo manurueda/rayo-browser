@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}rayo-ui{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: { colors: {
+    'rayo': { 50: '#eff6ff', 100: '#dbeafe', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb' }
+  }}}
+}
+</script>
+<script src="/static/htmx.min.js"></script>
+<script src="/static/htmx-ws.js"></script>
+<script>
+(function(){
+  var t = localStorage.getItem('rayo-theme');
+  if (t === 'light' || (!t && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+    document.documentElement.classList.remove('dark');
+  }
+})();
+function toggleTheme() {
+  var h = document.documentElement;
+  if (h.classList.contains('dark')) {
+    h.classList.remove('dark');
+    localStorage.setItem('rayo-theme', 'light');
+    document.getElementById('theme-icon').textContent = '\u263E';
+  } else {
+    h.classList.add('dark');
+    localStorage.setItem('rayo-theme', 'dark');
+    document.getElementById('theme-icon').textContent = '\u2600';
+  }
+}
+</script>
+<style>
+.htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity: 1; }
+</style>
+</head>
+<body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-200 min-h-screen">
+<nav class="border-b border-gray-200 dark:border-gray-800">
+  <div class="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
+    <div class="flex items-center gap-6">
+      <a href="/" class="font-semibold text-lg">&#9889; rayo<span class="text-rayo-500">-ui</span></a>
+      <div class="flex gap-4 text-sm">
+        <a href="/" class="hover:text-rayo-400 {% block nav_dashboard %}text-gray-500 dark:text-gray-400{% endblock %}">Dashboard</a>
+        <a href="/suites" class="hover:text-rayo-400 {% block nav_suites %}text-gray-500 dark:text-gray-400{% endblock %}">Suites</a>
+        <a href="/live" class="hover:text-rayo-400 {% block nav_live %}text-gray-500 dark:text-gray-400{% endblock %}">Live</a>
+      </div>
+    </div>
+    <button onclick="toggleTheme()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-lg" title="Toggle theme">
+      <span id="theme-icon">&#9728;</span>
+    </button>
+  </div>
+</nav>
+<main class="max-w-7xl mx-auto px-6 py-6">
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

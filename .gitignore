@@ -6,11 +6,6 @@ bench/results/*.json
 .DS_Store
 node_modules/
 
-# rayo-ui build artifacts
-ui/.next/
-ui/out/
-ui/node_modules/
-
 # Visual testing baselines (commit these intentionally, not by accident)
 # .rayo/baselines/
 

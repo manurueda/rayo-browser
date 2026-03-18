@@ -1,0 +1,27 @@
+<a href="/suites/{{ result.name }}" class="block border rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors {% if result.pass %}border-green-200 dark:border-green-900/50{% else %}border-red-200 dark:border-red-900/50{% endif %}">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      {% if result.pass %}
+      <span class="text-green-500 font-bold">&#10003;</span>
+      <span class="px-2 py-0.5 text-xs font-medium rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">PASS</span>
+      {% else %}
+      <span class="text-red-500 font-bold">&#10007;</span>
+      <span class="px-2 py-0.5 text-xs font-medium rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">FAIL</span>
+      {% endif %}
+      <span class="font-medium">{{ result.name }}</span>
+    </div>
+    <div class="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+      <span>{{ result.passed_steps }}/{{ result.total_steps }} steps</span>
+      <span>{{ crate::templates::fmt_duration(result.duration_ms) }}</span>
+    </div>
+  </div>
+  {# Progress bar #}
+  <div class="mt-3 h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden flex">
+    {% if result.passed_steps > 0 %}
+    <div class="bg-green-500 h-full" style="width: {{ result.passed_steps as f64 / result.total_steps as f64 * 100.0 }}%"></div>
+    {% endif %}
+    {% if result.failed_steps > 0 %}
+    <div class="bg-red-500 h-full" style="width: {{ result.failed_steps as f64 / result.total_steps as f64 * 100.0 }}%"></div>
+    {% endif %}
+  </div>
+</a>

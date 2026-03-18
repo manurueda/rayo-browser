@@ -25,6 +25,8 @@ pub mod report;
 pub mod result;
 pub mod runner;
 pub mod server;
+pub mod templates;
+pub mod terminal;
 pub mod types;
 
 use clap::{Parser, Subcommand};
@@ -68,6 +70,10 @@ enum Commands {
         /// Abort suite on first failure
         #[arg(long)]
         abort_on_failure: bool,
+
+        /// Verbose output (show all steps, assertions, page maps)
+        #[arg(short, long)]
+        verbose: bool,
     },
 
     /// List available test suites
@@ -149,6 +155,7 @@ pub async fn run() -> anyhow::Result<()> {
             json,
             html,
             abort_on_failure,
+            verbose,
         } => {
             let files = crate::loader::load_suites(&tests_dir)?;
 
@@ -171,62 +178,29 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             }
 
-            let mut all_passed = true;
             let mut all_results = Vec::new();
 
             for file in &suites_to_run {
-                println!("\n  Running: {}", file.suite.name);
+                eprint!("  Running: {}...", file.suite.name);
                 let result = crate::runner::run_suite(&file.suite, &config, None).await?;
-
-                for step in &result.steps {
-                    let icon = if step.pass {
-                        "\x1b[32m\u{2713}\x1b[0m"
-                    } else {
-                        "\x1b[31m\u{2717}\x1b[0m"
-                    };
-                    println!("    {icon} {} ({}ms)", step.name, step.duration_ms);
-                    if let Some(ref err) = step.error {
-                        println!("      \x1b[31m{err}\x1b[0m");
-                    }
-                    for a in &step.assertions {
-                        let a_icon = if a.pass {
-                            "\x1b[32m\u{2713}\x1b[0m"
-                        } else {
-                            "\x1b[31m\u{2717}\x1b[0m"
-                        };
-                        print!("      {a_icon} {}", a.assertion_type);
-                        if let Some(ref msg) = a.message {
-                            print!(" -- {msg}");
-                        }
-                        println!();
-                    }
-                }
-
-                if !result.pass {
-                    all_passed = false;
-                }
-
-                println!(
-                    "\n  {} {}/{} steps passed ({}ms)",
-                    if result.pass {
-                        "\x1b[32mPASS\x1b[0m"
-                    } else {
-                        "\x1b[31mFAIL\x1b[0m"
-                    },
-                    result.passed_steps,
-                    result.total_steps,
-                    result.duration_ms,
-                );
-
+                let icon = if result.pass {
+                    "\x1b[32m\u{2713}\x1b[0m"
+                } else {
+                    "\x1b[31m\u{2717}\x1b[0m"
+                };
+                eprintln!(" {icon}");
                 all_results.push(result);
             }
+
+            // Rich summary
+            crate::terminal::print_run_summary(&all_results, verbose);
 
             // Write reports
             if let Some(json_path) = json {
                 for result in &all_results {
                     crate::report::write_json_report(result, &json_path)?;
                 }
-                println!("\n  JSON report: {}", json_path.display());
+                eprintln!("  JSON report: {}", json_path.display());
             }
 
             if let Some(html_path) = html {
@@ -234,9 +208,10 @@ pub async fn run() -> anyhow::Result<()> {
                     let html_content = crate::report::generate_html_report(result);
                     std::fs::write(&html_path, html_content)?;
                 }
-                println!("  HTML report: {}", html_path.display());
+                eprintln!("  HTML report: {}", html_path.display());
             }
 
+            let all_passed = all_results.iter().all(|r| r.pass);
             if !all_passed {
                 std::process::exit(1);
             }

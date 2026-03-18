@@ -1,0 +1,17 @@
+{% if suites.is_empty() %}
+<p class="text-gray-500 dark:text-gray-400 text-center py-8">No test suites found.</p>
+{% else %}
+<div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+  {% for suite in suites %}
+  <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+    <div class="font-medium mb-1">{{ suite.name }}</div>
+    <div class="text-sm text-gray-500 dark:text-gray-400">
+      {{ suite.steps }} steps
+      {% if suite.has_setup %} &middot; setup{% endif %}
+      {% if suite.has_teardown %} &middot; teardown{% endif %}
+    </div>
+    <div class="text-xs text-gray-400 mt-1 truncate">{{ suite.path }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

@@ -20,17 +20,16 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
+askama = "0.15"
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 glob = "0.3"
 image = { version = "0.25", default-features = false, features = ["png"] }
-rust-embed = { version = "8", features = ["interpolate-folder-path"] }
-mime_guess = "2"
 open = "5"
+which = "7"
 
 [dev-dependencies]
-which = "6"
 tokio = { version = "1", features = ["full", "net"] }
 tempfile = "3"

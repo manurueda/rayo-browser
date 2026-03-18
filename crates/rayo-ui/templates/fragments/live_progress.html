@@ -1,0 +1,9 @@
+<div id="live-progress" hx-swap-oob="innerHTML">
+  <div class="flex items-center justify-between text-sm mb-2">
+    <span class="font-medium">{{ suite_name }}</span>
+    <span class="text-gray-500 dark:text-gray-400">{{ current }}/{{ total }}</span>
+  </div>
+  <div class="h-2 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden">
+    <div class="h-full bg-rayo-500 rounded-full transition-all duration-300" style="width: {{ "{:.0}"|format(percent) }}%" role="progressbar" aria-valuenow="{{ current }}" aria-valuemax="{{ total }}"></div>
+  </div>
+</div>

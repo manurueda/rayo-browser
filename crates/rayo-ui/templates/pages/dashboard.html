@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - rayo-ui{% endblock %}
+{% block nav_dashboard %}text-rayo-500 font-medium{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-xl font-semibold">Dashboard</h1>
+  <button hx-post="/api/run" hx-target="#results" hx-swap="innerHTML" hx-indicator="#run-spinner"
+    class="px-4 py-2 bg-rayo-500 hover:bg-rayo-600 text-white rounded-lg text-sm font-medium transition-colors">
+    Run All Tests
+    <span id="run-spinner" class="htmx-indicator ml-2">&#8987;</span>
+  </button>
+</div>
+
+{# Stats cards #}
+<div id="stats">
+  {% include "fragments/stats.html" %}
+</div>
+
+{# Recent results #}
+<div class="mt-8">
+  <h2 class="text-lg font-medium mb-4">Recent Results</h2>
+  <div id="results">
+    {% if results.is_empty() %}
+    <p class="text-gray-500 dark:text-gray-400 text-center py-12">No test results yet. Click &ldquo;Run All Tests&rdquo; to get started.</p>
+    {% else %}
+    {% for result in results %}
+    {% include "fragments/suite_card.html" %}
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+
+{# Available suites #}
+<div class="mt-8">
+  <h2 class="text-lg font-medium mb-4">Available Suites</h2>
+  {% include "fragments/available_suites.html" %}
+</div>
+{% endblock %}
