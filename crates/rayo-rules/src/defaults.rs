@@ -68,6 +68,8 @@ pub fn rules_as_agent_text() -> String {
 - DO NOT use fixed timeouts (sleep, waitForTimeout). Use event-driven waits.
 - DO NOT screenshot after every action. Max 10/min. Use rayo_observe page_map instead.
 - PREFER page_map over screenshot for understanding page content (200x more token-efficient).
+- PREFER rayo_observe mode=inspect over screenshot for CSS verification. Inspect returns computed styles, applied rules with source, variable chains, visibility diagnosis, and layout anomalies — deterministic and token-efficient.
+- When verifying CSS changes, use inspect with diff:true to see exactly what changed. Use expect:{} to assert expected values.
 - BATCH 3+ sequential actions into rayo_batch tool (5-7x faster).
 - REUSE browser contexts (creating costs 50-200ms each).
 - USE element IDs from page_map in actions (e.g., {"action": "click", "id": 3})."#
