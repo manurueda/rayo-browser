@@ -20,9 +20,10 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast};
 use tower_http::cors::CorsLayer;
 
-/// Static UI files built from Next.js and embedded at compile time.
+/// Static UI files embedded at compile time.
+/// Uses ui/out/ (full dashboard) if built, otherwise fallback-ui/ (placeholder).
 #[derive(Embed)]
-#[folder = "../../ui/out/"]
+#[folder = "$RAYO_UI_ASSETS_DIR"]
 struct UiAssets;
 
 /// Shared state for the server.

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>rayo-ui</title>
+<style>
+body { font-family: -apple-system, sans-serif; background: #0a0a0a; color: #e0e0e0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+.c { text-align: center; max-width: 500px; padding: 2rem; }
+h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.accent { color: #4a90d9; }
+p { color: #888; line-height: 1.6; }
+code { background: #1a1a1a; padding: 0.2em 0.5em; border-radius: 4px; font-size: 0.9em; }
+a { color: #4a90d9; }
+</style>
+</head>
+<body>
+<div class="c">
+<h1>⚡ rayo<span class="accent">-ui</span></h1>
+<p>API server is running. The full dashboard requires building the UI first:</p>
+<p><code>cd ui && npm install && npm run build</code></p>
+<p>Then rebuild: <code>cargo build -p rayo-mcp</code></p>
+<p>API endpoints: <a href="/api/suites">/api/suites</a> · <a href="/api/results">/api/results</a></p>
+</div>
+</body>
+</html>
