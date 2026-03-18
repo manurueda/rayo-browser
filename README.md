@@ -149,6 +149,53 @@ Add this to your CLAUDE.md so Claude knows to use rayo for tests:
 - Use `rayo_visual` to capture and compare screenshots for visual regression
 ```
 
+### Auto-discover
+
+Don't write tests by hand. Let rayo discover your app's flows automatically:
+
+```bash
+rayo-ui discover http://localhost:3000
+```
+
+rayo reads your source code to understand routes, forms, and API endpoints, then explores your app with the browser to verify what actually renders. It generates YAML test files for every discovered flow.
+
+```
+$ rayo-ui discover http://localhost:3000
+
+  ⚡ Discovering flows...
+
+  Framework: Next.js (app router)
+  Routes from code: 23
+  Routes explored: 23
+  Flows detected: 15 (8 forms, 3 auth, 2 CRUD, 2 navigation)
+  Console errors: 2
+
+  Generated:
+    .rayo/tests/login-form.test.yaml (4 steps)
+    .rayo/tests/signup-form.test.yaml (5 steps)
+    .rayo/tests/dashboard-navigation.test.yaml (3 steps)
+    .rayo/tests/settings-form.test.yaml (6 steps)
+    .rayo/tests/search-flow.test.yaml (3 steps)
+    .rayo/tests/_smoke.test.yaml (23 steps)
+    ... and 9 more
+
+  Tests: 47/47 passing
+  Health score: 87/100
+  Report: .rayo/discover-report.md
+```
+
+**Source code + browser = complete coverage.** Code analysis gives intent (what the app should do). Page maps give reality (what actually renders). The delta is where bugs live.
+
+Supported frameworks: Next.js, Express, Rails, Django, FastAPI, static HTML.
+
+**Diff-aware mode for PRs:**
+
+```bash
+rayo-ui discover http://localhost:3000 --diff
+```
+
+Only discovers routes affected by your current branch. Perfect for CI — every PR gets auto-generated regression tests for exactly what changed.
+
 ### Test format
 
 Tests are YAML files in `.rayo/tests/`:
@@ -217,6 +264,8 @@ AI agents can also use visual testing directly via MCP — no YAML needed:
 ### CLI
 
 ```bash
+rayo-ui discover http://localhost:3000  # Auto-discover and generate tests
+rayo-ui discover http://localhost:3000 --diff  # Only changed routes
 rayo-ui run                      # Run all suites
 rayo-ui run --suite "Login Flow" # Run a specific suite
 rayo-ui run --json report.json   # JSON report

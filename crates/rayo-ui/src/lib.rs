@@ -18,6 +18,7 @@
 //! └─────────────────────────────┘
 //! ```
 
+pub mod discover;
 pub mod error;
 pub mod loader;
 pub mod report;
@@ -92,6 +93,36 @@ enum Commands {
         /// Don't open browser automatically
         #[arg(long)]
         no_open: bool,
+    },
+
+    /// Auto-discover user flows and generate test files
+    Discover {
+        /// Target URL (e.g., http://localhost:3000)
+        url: String,
+
+        /// Project root directory for code analysis
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+
+        /// Output directory for generated tests
+        #[arg(short, long, default_value = ".rayo/tests")]
+        tests_dir: PathBuf,
+
+        /// Baselines directory
+        #[arg(short, long, default_value = ".rayo/baselines")]
+        baselines_dir: PathBuf,
+
+        /// Only discover routes affected by current branch diff
+        #[arg(long)]
+        diff: bool,
+
+        /// Overwrite existing test files
+        #[arg(long)]
+        force: bool,
+
+        /// Maximum pages to explore
+        #[arg(long, default_value = "50")]
+        max_pages: usize,
     },
 }
 
@@ -231,6 +262,42 @@ pub async fn run() -> anyhow::Result<()> {
             no_open,
         } => {
             crate::server::start_server(tests_dir, baselines_dir, port, !no_open).await?;
+        }
+
+        Commands::Discover {
+            url,
+            project_dir,
+            tests_dir,
+            baselines_dir,
+            diff,
+            force,
+            max_pages,
+        } => {
+            let config = crate::discover::DiscoverConfig {
+                url,
+                project_dir,
+                tests_dir,
+                baselines_dir,
+                diff_mode: diff,
+                force,
+                max_pages,
+            };
+
+            println!("\n  rayo-ui discover");
+            println!("  ================");
+
+            let result = crate::discover::discover(config).await?;
+
+            println!("\n  Results");
+            println!("  -------");
+            println!("  Framework:       {}", result.framework);
+            println!("  Routes (code):   {}", result.routes_from_code);
+            println!("  Routes explored: {}", result.routes_explored);
+            println!("  Flows detected:  {}", result.flows_detected);
+            println!("  Tests generated: {}", result.tests_generated);
+            println!("  Console errors:  {}", result.console_errors);
+            println!("  Health score:    {}%", result.health_score);
+            println!("  Duration:        {}ms", result.duration_ms);
         }
     }
 

@@ -98,3 +98,8 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - PNG for visual testing, JPEG for regular screenshots
 - Viewport configurable via ViewportConfig (default 1280x720)
 - rayo-ui web server: REST API + WebSocket for live test updates
+- `rayo-ui discover <url>` auto-generates tests from source code + browser exploration
+- Framework analyzers: Next.js, Express, Rails, Django, FastAPI, static HTML
+- Diff-aware mode: `--diff` flag scopes discovery to changed routes on current branch
+- Flow detection: forms, auth, CRUD, navigation, search — multi-step test sequences
+- Discovery report with health score written to .rayo/discover-report.md

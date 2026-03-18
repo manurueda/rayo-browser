@@ -112,6 +112,18 @@
 - Input validation: sanitize baseline names, validate thresholds (0-1)
 - **Effort: S | Priority: P1 | Depends on: rayo-visual, rayo-core extensions**
 
+### rayo-ui discover — Auto-discovery and test generation
+- Framework-specific code analyzers (Next.js, Express, Rails, Django, FastAPI, static HTML)
+- Browser exploration using page maps (<1ms per page)
+- Smart flow detection (forms, auth, CRUD, navigation, search)
+- YAML test generation with assertions from live exploration
+- Console error detection during exploration
+- Screenshot baseline auto-capture
+- Diff-aware mode for PR-scoped discovery
+- Discovery report with health score (0-100)
+- Smoke test generation (visit every page, assert loads)
+- **Effort: L | Priority: P1 | Depends on: rayo-core, rayo-visual, rayo-ui runner**
+
 ### rayo-rules extensions for visual testing
 - Warn if comparing without animation freeze
 - Warn if baseline is >30 days old
