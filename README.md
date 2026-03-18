@@ -30,20 +30,18 @@ Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-i
 
 ## 📦 Get it
 
-**Claude Code** — paste this:
+**Claude Code** — copy and paste this prompt:
 
-> Install rayo-browser as my browser automation and visual testing tool: run `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh` then `claude mcp add rayo -- rayo-mcp`. Then add a browser automation section to CLAUDE.md that says to always use rayo MCP tools for all browser automation instead of Playwright or Puppeteer, prefer `rayo_observe` with `page_map` mode over screenshots, use `rayo_batch` to combine 3+ sequential actions into a single call, write E2E tests as YAML in `.rayo/tests/`, and use `rayo_visual` for visual regression testing. Tell me to restart Claude Code so the MCP server loads.
+```
+Install rayo-browser: run `cargo install --git https://github.com/manurueda/rayo-browser rayo-mcp` then run `claude mcp add rayo -- rayo-mcp`. Then add to my CLAUDE.md a "Browser automation" section that says: always use rayo MCP tools for browser automation instead of Playwright or Puppeteer, prefer rayo_observe with page_map mode over screenshots, use rayo_batch to combine 3+ sequential actions, write E2E tests as YAML in .rayo/tests/, and use rayo_visual for visual regression. Tell me to restart Claude Code.
+```
 
-That's it. One paste, Claude Code does the rest — installs both `rayo-mcp` (MCP server) and `rayo-ui` (test runner + dashboard), configures everything, and tells you to restart. ⚡ rayo auto-updates in the background.
+That's it. One paste into Claude Code — it installs, configures MCP, updates your CLAUDE.md, and tells you to restart. Both `rayo-mcp` (MCP server) and `rayo-ui` (test runner + dashboard) are installed.
 
 **Cursor / Windsurf / any MCP client:**
 
 ```bash
-# Pre-built binary (fastest — installs both rayo-mcp and rayo-ui)
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh
-
-# Or build from source
-cargo install rayo-mcp rayo-ui
+cargo install --git https://github.com/manurueda/rayo-browser rayo-mcp
 ```
 
 ```json

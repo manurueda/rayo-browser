@@ -57,10 +57,10 @@ Tests use a local axum server serving fixtures from `tests/fixtures/`.
 ## Installation
 
 ```
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh && claude mcp add rayo -- rayo-mcp
+cargo install --git https://github.com/manurueda/rayo-browser rayo-mcp
 ```
 
-Or from source: `cargo install rayo-mcp && claude mcp add rayo -- rayo-mcp`
+Then: `claude mcp add rayo -- rayo-mcp`
 
 Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 
