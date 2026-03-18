@@ -109,13 +109,49 @@ The agent already knows the IDs from the page map. It fills the form and submits
 
 ## 🧪 Visual Testing
 
-⚡ rayo includes a complete E2E visual testing platform — like Momentic or Playwright Test, but faster and free.
+⚡ rayo includes AI-native E2E visual testing — like Momentic, but faster and free.
 
-### How it works
+### Just ask Claude
 
-1. **Write tests in YAML** — no code, no complex setup
-2. **Run with one command** — `rayo-test run`
-3. **See results in the dashboard** — live WebSocket updates as tests execute
+The easiest way to create tests is to ask your AI agent:
+
+> "Add a test for the checkout flow"
+
+Claude Code will:
+1. Navigate to your app with `rayo_navigate`
+2. Read the page structure with `rayo_observe` (page map)
+3. Write a `.rayo/tests/checkout.test.yaml` based on what it sees
+4. Run it with `rayo-test run` to verify it passes
+
+```
+You: "add a test for the signup flow on localhost:3000"
+
+Claude Code:
+  → rayo_navigate { goto: "http://localhost:3000/signup" }
+  → rayo_observe  { mode: "page_map" }
+  ← sees: input[name=email], input[name=password], button "Sign Up"
+  → writes .rayo/tests/signup.test.yaml
+  → runs: rayo-test run --suite "Signup Flow"
+  → "✓ 3/3 steps passed (280ms)"
+```
+
+That's it. Claude already has all the rayo MCP tools — it can explore your app, understand the page, and write the test. No manual selectors, no recording, no setup.
+
+Add this to your CLAUDE.md so Claude knows to use rayo for tests:
+
+```markdown
+## Testing
+
+- Use rayo MCP tools to explore pages before writing tests
+- Write E2E tests as YAML in `.rayo/tests/*.test.yaml`
+- Use `rayo_observe` with `page_map` to discover selectors and element IDs
+- Run tests with `rayo-test run` after writing them
+- Use `rayo_visual` to capture and compare screenshots for visual regression
+```
+
+### Test format
+
+Tests are YAML files in `.rayo/tests/`:
 
 ```yaml
 # .rayo/tests/login-flow.test.yaml
@@ -166,48 +202,37 @@ Speed:     <7ms for a 720p comparison
 - **Region clustering** — groups nearby changes into named regions with bounding boxes
 - **Diff overlay** — generates a highlighted image showing exactly what changed
 - **Animation freeze** — CSS injection disables animations for stable screenshots
-- **Auto-baseline** — first run captures the baseline automatically with a `new_baseline: true` flag
+- **Auto-baseline** — first run captures the baseline automatically
 
 ### MCP tool: `rayo_visual`
 
-AI agents can use visual testing directly via the MCP protocol:
+AI agents can also use visual testing directly via MCP — no YAML needed:
 
 ```json
-{
-  "tool": "rayo_visual",
-  "action": "compare",
-  "name": "dashboard",
-  "threshold": 0.01
-}
+{ "tool": "rayo_visual", "action": "capture", "name": "homepage" }
+{ "tool": "rayo_visual", "action": "compare", "name": "homepage", "threshold": 0.01 }
+{ "tool": "rayo_visual", "action": "baseline", "mode": "list" }
 ```
-
-Returns structured diff report: pass/fail, diff ratio, perceptual score, changed regions, timing.
 
 ### CLI
 
 ```bash
-rayo-test list                    # List available test suites
-rayo-test run                     # Run all suites
+rayo-test list                     # List available test suites
+rayo-test run                      # Run all suites
 rayo-test run --suite "Login Flow" # Run a specific suite
-rayo-test run --json report.json  # JSON report
-rayo-test run --html report.html  # Self-contained HTML report
-rayo-test ui                      # Start the web dashboard
+rayo-test run --json report.json   # JSON report
+rayo-test run --html report.html   # Self-contained HTML report
+rayo-test ui                       # Start the web dashboard
 ```
 
 ### Web Dashboard
-
-Start the dashboard and run tests with live updates:
 
 ```bash
 rayo-test ui          # Start API server on :4040
 cd ui && npm run dev  # Start Next.js dashboard on :3001
 ```
 
-The dashboard shows:
-- **Health overview** — pass rate, suite counts, timing
-- **Suite list** — drill into any suite to see step-by-step results
-- **Live runner** — real-time WebSocket updates as tests execute
-- **Visual diffs** — inline diff reports with changed regions and perceptual scores
+Dashboard, suite detail view, and live runner with real-time WebSocket updates as tests execute.
 
 ## 📊 Full benchmark breakdown
 
