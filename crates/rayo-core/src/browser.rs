@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use crate::cookie::{CookieInfo, SameSite, SetCookie};
+use crate::cookie::{CookieInfo, CookieSetResult, SameSite, SetCookie};
 use crate::network::{CapturedRequest, NetworkInterceptor};
 use chromiumoxide::browser::{Browser as CdpBrowser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::fetch::{
@@ -44,6 +44,30 @@ impl Default for ViewportConfig {
             height: 720,
         }
     }
+}
+
+/// Result of a navigation with auto-auth.
+#[derive(Debug, Clone)]
+pub struct NavigationResult {
+    /// The page map after navigation completed.
+    pub map: crate::page_map::PageMap,
+    /// The URL that was originally requested.
+    pub requested_url: String,
+    /// True if the final URL differs meaningfully from the requested URL.
+    pub redirected: bool,
+    /// Whether auto-auth was attempted.
+    pub auto_auth: AutoAuthStatus,
+}
+
+/// What happened with auto-auth during navigation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutoAuthStatus {
+    /// No auth wall was detected.
+    NotNeeded,
+    /// Auth wall detected, cookies imported, retry succeeded.
+    Succeeded,
+    /// Auth wall detected, but cookie import or retry failed.
+    Failed,
 }
 
 /// Rayo browser wrapper with profiling and caching.
@@ -306,7 +330,8 @@ impl RayoPage {
     pub async fn goto_with_auto_auth(
         &self,
         url: &str,
-    ) -> Result<crate::page_map::PageMap, RayoError> {
+        llm_checker: Option<&crate::auth::LlmAuthChecker>,
+    ) -> Result<NavigationResult, RayoError> {
         let _span = self.profiler.start_span(
             format!("goto_with_auto_auth({})", truncate(url, 60)),
             SpanCategory::Auth,
@@ -328,12 +353,7 @@ impl RayoPage {
                     url: None,
                     secure: Some(c.secure),
                     http_only: Some(c.http_only),
-                    same_site: c.same_site.as_deref().and_then(|s| match s {
-                        "Strict" => Some(SameSite::Strict),
-                        "Lax" => Some(SameSite::Lax),
-                        "None" => Some(SameSite::None),
-                        _ => None,
-                    }),
+                    same_site: c.same_site.as_deref().and_then(SameSite::parse),
                     expires: if c.expires > 0.0 {
                         Some(c.expires)
                     } else {
@@ -355,41 +375,87 @@ impl RayoPage {
         // Step 2: Navigate
         self.goto(url).await?;
 
-        // Step 3: Check for auth wall
+        // Step 3: Check for auth wall using confidence scoring
         let final_url = self.url().await.unwrap_or_default();
         let map = self.page_map(None).await?;
+        let redirected = crate::auth::is_meaningful_redirect(url, &map.url);
 
-        if crate::auth::is_auth_redirect(url, &final_url) || crate::auth::is_login_page(&map) {
-            tracing::info!("Auth wall detected at {final_url}, attempting cookie import");
+        let auth = crate::auth::detect_auth_wall(url, &final_url, &map);
+
+        // Determine if auth wall is present using tiered approach
+        let is_auth = match auth.confidence {
+            c if c >= 0.5 => true,
+            c if c < 0.2 => false,
+            _ => {
+                // Uncertain zone — try LLM if available
+                if let Some(checker) = llm_checker {
+                    if let Ok(screenshot) = self.screenshot(false).await {
+                        let result = tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            checker(screenshot),
+                        )
+                        .await;
+                        match result {
+                            Ok(Some(is_login)) => is_login,
+                            _ => auth.confidence >= 0.35,
+                        }
+                    } else {
+                        auth.confidence >= 0.35
+                    }
+                } else {
+                    auth.confidence >= 0.35
+                }
+            }
+        };
+
+        if is_auth {
+            tracing::info!(
+                "Auth wall detected at {final_url} (confidence: {:.0}%, signals: {:?})",
+                auth.confidence * 100.0,
+                auth.signals,
+            );
 
             // Step 4: Auto-detect browser and import cookies
             if let Some(browser) =
                 crate::detect::default_browser().or_else(crate::detect::find_available_browser)
             {
                 match crate::cookie_import::import_cookies(browser, Some(&domain), None) {
-                    Ok(imported) if !imported.is_empty() => {
+                    Ok(import) if !import.cookies.is_empty() => {
                         tracing::info!(
-                            "Imported {} cookies from {browser} for {domain}",
-                            imported.len()
+                            "Imported {} cookies from {browser} for {domain} (profile: {}, {}/{} from DB)",
+                            import.cookies.len(),
+                            import.profile_used,
+                            import.cookies.len(),
+                            import.found_in_db,
                         );
 
                         // Inject imported cookies
-                        if let Err(e) = self.set_cookies(imported).await {
+                        if let Err(e) = self.set_cookies(import.cookies).await {
                             tracing::warn!("Failed to inject imported cookies: {e}");
-                            return Ok(map);
+                            return Ok(NavigationResult {
+                                map,
+                                requested_url: url.to_string(),
+                                redirected,
+                                auto_auth: AutoAuthStatus::Failed,
+                            });
                         }
 
                         // Retry navigation
                         if let Err(e) = self.goto(url).await {
                             tracing::warn!("Retry navigation failed: {e}");
-                            return Ok(map);
+                            return Ok(NavigationResult {
+                                map,
+                                requested_url: url.to_string(),
+                                redirected,
+                                auto_auth: AutoAuthStatus::Failed,
+                            });
                         }
 
                         // Persist cookies for next session
                         if let Ok(cookie_infos) = self.get_cookies().await {
                             let domain_cookies: Vec<_> = cookie_infos
                                 .into_iter()
-                                .filter(|c| c.domain.contains(&domain))
+                                .filter(|c| crate::cookie::matches_domain(&c.domain, &domain))
                                 .collect();
                             if let Err(e) =
                                 crate::persist::save_domain_cookies(&domain, &domain_cookies)
@@ -399,10 +465,26 @@ impl RayoPage {
                         }
 
                         let retry_map = self.page_map(None).await?;
-                        return Ok(retry_map);
+                        let retry_redirected =
+                            crate::auth::is_meaningful_redirect(url, &retry_map.url);
+                        let auto_auth = if retry_redirected {
+                            AutoAuthStatus::Failed
+                        } else {
+                            AutoAuthStatus::Succeeded
+                        };
+                        return Ok(NavigationResult {
+                            map: retry_map,
+                            requested_url: url.to_string(),
+                            redirected: retry_redirected,
+                            auto_auth,
+                        });
                     }
-                    Ok(_) => {
-                        tracing::debug!("No cookies found in {browser} for {domain}");
+                    Ok(import) => {
+                        tracing::debug!(
+                            "No cookies found in {browser} for {domain} (profile: {}, available: {:?})",
+                            import.profile_used,
+                            import.available_profiles,
+                        );
                     }
                     Err(e) => {
                         tracing::warn!("Auto cookie import from {browser} failed: {e}");
@@ -411,9 +493,39 @@ impl RayoPage {
             } else {
                 tracing::debug!("No browser detected for cookie import");
             }
+
+            return Ok(NavigationResult {
+                map,
+                requested_url: url.to_string(),
+                redirected,
+                auto_auth: AutoAuthStatus::Failed,
+            });
         }
 
-        Ok(map)
+        Ok(NavigationResult {
+            map,
+            requested_url: url.to_string(),
+            redirected,
+            auto_auth: AutoAuthStatus::NotNeeded,
+        })
+    }
+
+    /// Navigate with auto-auth (no-op when cookie-import feature is disabled).
+    #[cfg(not(feature = "cookie-import"))]
+    pub async fn goto_with_auto_auth(
+        &self,
+        url: &str,
+        _llm_checker: Option<&crate::auth::LlmAuthChecker>,
+    ) -> Result<NavigationResult, RayoError> {
+        self.goto(url).await?;
+        let map = self.page_map(None).await?;
+        let redirected = crate::auth::is_meaningful_redirect(url, &map.url);
+        Ok(NavigationResult {
+            map,
+            requested_url: url.to_string(),
+            redirected,
+            auto_auth: AutoAuthStatus::NotNeeded,
+        })
     }
 
     /// Internal goto without cache invalidation — used by batch executor
@@ -1270,32 +1382,38 @@ impl RayoPage {
     }
 
     /// Set cookies on the page.
-    pub async fn set_cookies(&self, cookies: Vec<SetCookie>) -> Result<(), RayoError> {
+    pub async fn set_cookies(&self, cookies: Vec<SetCookie>) -> Result<CookieSetResult, RayoError> {
         let _span = self.profiler.start_span(
             format!("set_cookies({})", cookies.len()),
             SpanCategory::CdpCommand,
         );
-        // Set cookies individually — one bad cookie shouldn't block the rest.
-        // Use set_cookie (singular) which handles URL validation per-cookie.
-        let mut set_count = 0;
-        let total = cookies.len();
+        let mut result = CookieSetResult {
+            set: 0,
+            failed: Vec::new(),
+        };
         for cookie in cookies {
             let name = cookie.name.clone();
             let cdp = to_cdp_cookie(cookie);
             match self.page.set_cookie(cdp).await {
-                Ok(_) => set_count += 1,
+                Ok(_) => result.set += 1,
                 Err(e) => {
                     tracing::warn!("Failed to set cookie '{name}': {e}");
+                    result.failed.push(name);
                 }
             }
         }
-        tracing::debug!("Set {set_count}/{total} cookies");
-        if set_count == 0 && total > 0 {
-            return Err(RayoError::CookieError(
-                "Failed to set any cookies".to_string(),
-            ));
+        tracing::debug!(
+            "Set {}/{} cookies",
+            result.set,
+            result.set + result.failed.len()
+        );
+        if result.set == 0 && !result.failed.is_empty() {
+            return Err(RayoError::CookieError(format!(
+                "Failed to set any cookies. Rejected: {:?}",
+                result.failed
+            )));
         }
-        Ok(())
+        Ok(result)
     }
 
     /// Get all cookies for the current page.

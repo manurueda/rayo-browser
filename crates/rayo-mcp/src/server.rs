@@ -7,17 +7,18 @@ use std::sync::Arc;
 use anyhow::Result;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, Content, Implementation, ListToolsResult,
-    PaginatedRequestParam, ServerCapabilities, ServerInfo, Tool, ToolsCapability,
+    CallToolRequestParam, CallToolResult, Content, CreateMessageRequestParam, Implementation,
+    ListToolsResult, ModelPreferences, PaginatedRequestParam, Role, SamplingMessage,
+    ServerCapabilities, ServerInfo, Tool, ToolsCapability,
 };
-use rmcp::service::RequestContext;
+use rmcp::service::{Peer, RequestContext};
 use rmcp::{Error as McpError, RoleServer};
 use serde_json::json;
 use tokio::sync::Mutex;
 
 use rayo_core::network::NetworkInterceptor;
 use rayo_core::tab_manager::TabManager;
-use rayo_core::{RayoBrowser, RayoPage};
+use rayo_core::{LlmAuthChecker, RayoBrowser, RayoPage};
 use rayo_profiler::Profiler;
 use rayo_rules::{RayoRulesConfig, RuleEngine};
 
@@ -38,6 +39,8 @@ pub struct RayoServer {
     network: Arc<Mutex<NetworkInterceptor>>,
     profiler: Arc<Profiler>,
     rules: Arc<Mutex<RuleEngine>>,
+    /// MCP peer handle, set by rmcp framework after initialization.
+    peer: Arc<Mutex<Option<Peer<RoleServer>>>>,
 }
 
 impl Default for RayoServer {
@@ -56,6 +59,7 @@ impl RayoServer {
             network: Arc::new(Mutex::new(NetworkInterceptor::new())),
             profiler: Arc::new(profiler),
             rules: Arc::new(Mutex::new(RuleEngine::new(rules_config))),
+            peer: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -226,6 +230,75 @@ impl RayoServer {
         }
     }
 
+    /// Build an `LlmAuthChecker` if the MCP client supports sampling.
+    ///
+    /// Checks `ClientCapabilities.sampling` — if absent, the client cannot
+    /// handle `sampling/createMessage` requests and we return `None`.
+    fn build_llm_checker(&self) -> Option<LlmAuthChecker> {
+        let peer_guard = self.peer.try_lock().ok()?;
+        let peer = peer_guard.as_ref()?;
+
+        // Check that the client advertised sampling support
+        let client_info = peer.peer_info();
+        if client_info.capabilities.sampling.is_none() {
+            tracing::debug!("MCP client does not support sampling — LLM auth check disabled");
+            return None;
+        }
+
+        let peer = peer.clone();
+        tracing::debug!("MCP client supports sampling — LLM auth check enabled");
+
+        Some(Box::new(move |screenshot_b64: String| {
+            let peer = peer.clone();
+            Box::pin(async move {
+                let request = CreateMessageRequestParam {
+                    messages: vec![
+                        SamplingMessage {
+                            role: Role::User,
+                            content: Content::image(screenshot_b64, "image/jpeg"),
+                        },
+                        SamplingMessage {
+                            role: Role::User,
+                            content: Content::text(
+                                "Is this a login, sign-in, or authentication page? Answer only: yes or no",
+                            ),
+                        },
+                    ],
+                    system_prompt: None,
+                    max_tokens: 5,
+                    model_preferences: Some(ModelPreferences {
+                        cost_priority: Some(1.0),
+                        speed_priority: Some(1.0),
+                        intelligence_priority: Some(0.0),
+                        hints: None,
+                    }),
+                    include_context: None,
+                    temperature: None,
+                    stop_sequences: None,
+                    metadata: None,
+                };
+
+                match peer.create_message(request).await {
+                    Ok(result) => {
+                        let text = result
+                            .message
+                            .content
+                            .as_text()
+                            .map(|t| t.text.clone())
+                            .unwrap_or_default();
+                        let lower = text.to_lowercase();
+                        tracing::debug!(response = %lower, "LLM auth check response");
+                        Some(lower.contains("yes"))
+                    }
+                    Err(e) => {
+                        tracing::debug!("MCP sampling failed: {e}");
+                        None
+                    }
+                }
+            })
+        }))
+    }
+
     fn tool_definitions() -> Vec<Tool> {
         vec![
             Tool::new(
@@ -392,6 +465,17 @@ impl RayoServer {
 
 #[allow(clippy::manual_async_fn)]
 impl ServerHandler for RayoServer {
+    fn get_peer(&self) -> Option<Peer<RoleServer>> {
+        self.peer.try_lock().ok().and_then(|g| g.clone())
+    }
+
+    fn set_peer(&mut self, peer: Peer<RoleServer>) {
+        // try_lock is safe here — set_peer is called once during init, no contention
+        if let Ok(mut guard) = self.peer.try_lock() {
+            *guard = Some(peer);
+        }
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: Default::default(),
@@ -452,9 +536,10 @@ impl ServerHandler for RayoServer {
                             self.handle_tab_action(action, &params).await
                         }
                         _ => {
+                            let checker = self.build_llm_checker();
                             let tabs = self.tabs.lock().await;
                             let page = Self::resolve_page(&tabs, tab_id).await?;
-                            tools::handle_navigate(page, &params).await
+                            tools::handle_navigate(page, &params, checker.as_ref()).await
                         }
                     }
                 }

@@ -9,7 +9,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use crate::cookie::{SameSite, SetCookie};
+use crate::cookie::{CookieImportResult, SameSite, SetCookie};
 use crate::error::RayoError;
 
 /// Supported browser types for cookie import.
@@ -148,26 +148,29 @@ pub fn list_available_browsers() -> Vec<(BrowserType, Vec<String>)> {
 /// Import cookies from a real browser's cookie database.
 ///
 /// Reads the Chromium SQLite cookie store, decrypts encrypted values,
-/// and returns `SetCookie` objects ready to inject into the headless browser.
+/// and returns `CookieImportResult` with cookies ready to inject into the headless browser.
 pub fn import_cookies(
     browser: BrowserType,
     domain: Option<&str>,
     profile: Option<&str>,
-) -> Result<Vec<SetCookie>, RayoError> {
+) -> Result<CookieImportResult, RayoError> {
+    let available_profiles = browser.list_profiles();
     let profile = profile.unwrap_or("Default");
     let db_path = browser.cookie_db_path(profile);
 
     if !db_path.exists() {
         return Err(RayoError::CookieError(format!(
-            "Cookie database not found: {}. Is {} installed? Available profiles: {:?}",
+            "Cookie database not found for profile '{profile}': {}. \
+             Available profiles: {available_profiles:?}",
             db_path.display(),
-            browser,
-            browser.list_profiles(),
         )));
     }
 
     let key = derive_decryption_key(browser)?;
-    read_cookies_from_db(&db_path, domain, &key)
+    let mut result = read_cookies_from_db(&db_path, domain, &key)?;
+    result.profile_used = profile.to_string();
+    result.available_profiles = available_profiles;
+    Ok(result)
 }
 
 /// Derive the AES-128 key used to decrypt Chrome cookie values.
@@ -237,7 +240,7 @@ fn read_cookies_from_db(
     db_path: &std::path::Path,
     domain: Option<&str>,
     key: &[u8; 16],
-) -> Result<Vec<SetCookie>, RayoError> {
+) -> Result<CookieImportResult, RayoError> {
     // Copy database files to a temp dir to avoid lock contention with the running browser.
     // Chrome uses WAL mode, so we copy the -wal and -shm files too.
     let temp_dir = tempfile::tempdir()
@@ -280,37 +283,44 @@ fn read_cookies_from_db(
     let base_query = "SELECT host_key, name, value, encrypted_value, path, \
                       is_secure, is_httponly, expires_utc, samesite FROM cookies";
 
-    let mut cookies = Vec::new();
+    // Always query all cookies, filter in Rust for proper domain matching
+    let mut stmt = conn
+        .prepare(base_query)
+        .map_err(|e| RayoError::CookieError(format!("SQL prepare failed: {e}")))?;
+    let rows = stmt
+        .query_map([], map_cookie_row)
+        .map_err(|e| RayoError::CookieError(format!("SQL query failed: {e}")))?;
 
-    if let Some(domain) = domain {
-        let query = format!("{base_query} WHERE host_key LIKE ?1");
-        let pattern = format!("%{domain}%");
-        let mut stmt = conn
-            .prepare(&query)
-            .map_err(|e| RayoError::CookieError(format!("SQL prepare failed: {e}")))?;
-        let rows = stmt
-            .query_map([&pattern], map_cookie_row)
-            .map_err(|e| RayoError::CookieError(format!("SQL query failed: {e}")))?;
-        for row in rows {
-            if let Some(cookie) = process_row(row, key, db_version)? {
-                cookies.push(cookie);
-            }
+    let mut result = CookieImportResult {
+        cookies: Vec::new(),
+        profile_used: String::new(),
+        found_in_db: 0,
+        decrypt_failed: Vec::new(),
+        empty_skipped: 0,
+        available_profiles: Vec::new(),
+    };
+
+    for row in rows {
+        let raw =
+            row.map_err(|e| RayoError::CookieError(format!("Failed to read cookie row: {e}")))?;
+
+        // Domain filter with proper boundary matching
+        if let Some(domain) = domain
+            && !crate::cookie::matches_domain(&raw.host_key, domain)
+        {
+            continue;
         }
-    } else {
-        let mut stmt = conn
-            .prepare(base_query)
-            .map_err(|e| RayoError::CookieError(format!("SQL prepare failed: {e}")))?;
-        let rows = stmt
-            .query_map([], map_cookie_row)
-            .map_err(|e| RayoError::CookieError(format!("SQL query failed: {e}")))?;
-        for row in rows {
-            if let Some(cookie) = process_row(row, key, db_version)? {
-                cookies.push(cookie);
-            }
+
+        result.found_in_db += 1;
+
+        match process_row_tracked(raw, key, db_version) {
+            Ok(Some(cookie)) => result.cookies.push(cookie),
+            Ok(None) => result.empty_skipped += 1,
+            Err(name) => result.decrypt_failed.push(name),
         }
     }
 
-    Ok(cookies)
+    Ok(result)
 }
 
 fn map_cookie_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawCookie> {
@@ -328,14 +338,15 @@ fn map_cookie_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawCookie> {
 }
 
 /// Process a raw cookie row: decrypt value and convert to SetCookie.
-fn process_row(
-    row: rusqlite::Result<RawCookie>,
+///
+/// Returns `Ok(Some(cookie))` on success, `Ok(None)` if value is empty after
+/// decryption (caller counts as empty_skipped), or `Err(name)` if decryption
+/// failed (caller tracks in decrypt_failed).
+fn process_row_tracked(
+    raw: RawCookie,
     key: &[u8; 16],
     db_version: u32,
-) -> Result<Option<SetCookie>, RayoError> {
-    let raw = row.map_err(|e| RayoError::CookieError(format!("Failed to read cookie row: {e}")))?;
-
-    // Prefer encrypted_value; fall back to plaintext value column
+) -> Result<Option<SetCookie>, String> {
     let value = if !raw.encrypted_value.is_empty() {
         match decrypt_cookie_value(&raw.encrypted_value, key, db_version) {
             Ok(v) => v,
@@ -346,7 +357,7 @@ fn process_row(
                     raw.encrypted_value.len(),
                     raw.encrypted_value.get(..3)
                 );
-                raw.value
+                return Err(raw.name);
             }
         }
     } else {
@@ -540,9 +551,17 @@ mod tests {
         }
 
         match import_cookies(BrowserType::Chrome, Some("github.com"), None) {
-            Ok(cookies) => {
-                eprintln!("Imported {} cookies for github.com", cookies.len());
-                for c in &cookies {
+            Ok(result) => {
+                eprintln!(
+                    "Imported {} cookies for github.com (found_in_db={}, decrypt_failed={}, empty_skipped={})",
+                    result.cookies.len(),
+                    result.found_in_db,
+                    result.decrypt_failed.len(),
+                    result.empty_skipped,
+                );
+                eprintln!("Profile used: {}", result.profile_used);
+                eprintln!("Available profiles: {:?}", result.available_profiles);
+                for c in &result.cookies {
                     let v = if c.value.len() > 30 {
                         format!("{}...", &c.value[..30])
                     } else {
@@ -551,7 +570,7 @@ mod tests {
                     eprintln!("  {} = {}", c.name, v);
                 }
                 assert!(
-                    !cookies.is_empty(),
+                    !result.cookies.is_empty(),
                     "Should import at least one cookie from Chrome for github.com"
                 );
             }

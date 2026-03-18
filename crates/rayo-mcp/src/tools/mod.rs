@@ -22,6 +22,7 @@ fn internal_err(e: impl std::fmt::Display) -> McpError {
 pub async fn handle_navigate(
     page: &RayoPage,
     params: &serde_json::Map<String, Value>,
+    llm_checker: Option<&rayo_core::auth::LlmAuthChecker>,
 ) -> Result<CallToolResult, McpError> {
     let action = params
         .get("action")
@@ -39,41 +40,48 @@ pub async fn handle_navigate(
                 .and_then(|v| v.as_str())
                 .unwrap_or("load");
 
-            // Use transparent auto-auth: detects auth walls, imports cookies
-            // from the user's real browser, and retries navigation if needed.
-            // Zero overhead when no auth wall is detected.
-            let map = page.goto_with_auto_auth(url).await.map_err(internal_err)?;
+            let nav = page
+                .goto_with_auto_auth(url, llm_checker)
+                .await
+                .map_err(internal_err)?;
 
-            // Handle wait_until conditions beyond the default page load.
-            // "load" and "domcontentloaded" are already satisfied by goto()
-            // which waits for the page load event.
             if wait_until == "networkidle" {
-                // Wait for 500ms of no new network activity.
-                // Uses Performance API to detect ongoing resource fetches.
                 page.wait_for_network_idle(500, 5000)
                     .await
                     .map_err(internal_err)?;
             }
 
-            // Auto-return page_map after navigation (delight feature)
-            // page_map already contains title and URL — no separate CDP calls needed
-            // If we waited for networkidle, re-fetch the page_map since it may have changed.
             let map = if wait_until == "networkidle" {
                 page.page_map(None).await.map_err(internal_err)?
             } else {
-                map
+                nav.map.clone()
             };
             let json = serde_json::to_string(&map).unwrap_or_default();
-            let waited = if wait_until != "load" {
-                format!(" (waited for {wait_until})")
-            } else {
-                String::new()
-            };
+
+            let mut status = format!("Navigated to {}\nTitle: {}", map.url, map.title);
+
+            if nav.redirected {
+                status.push_str(&format!("\n⚠ Redirected from {}", nav.requested_url));
+            }
+
+            match nav.auto_auth {
+                rayo_core::AutoAuthStatus::Succeeded => {
+                    status.push_str("\n✓ Auto-auth: imported cookies and retried successfully");
+                }
+                rayo_core::AutoAuthStatus::Failed => {
+                    status.push_str(
+                        "\n⚠ Auto-auth: auth wall detected but cookie import failed — you may be seeing a login page",
+                    );
+                }
+                rayo_core::AutoAuthStatus::NotNeeded => {}
+            }
+
+            if wait_until != "load" {
+                status.push_str(&format!(" (waited for {wait_until})"));
+            }
+
             let content = vec![
-                Content::text(format!(
-                    "Navigated to {}\nTitle: {}{}",
-                    map.url, map.title, waited
-                )),
+                Content::text(status),
                 Content::text(format!("\n--- page_map ---\n{json}")),
             ];
             Ok(CallToolResult::success(content))
@@ -338,23 +346,24 @@ pub async fn handle_cookie(
                     url: entry.get("url").and_then(|v| v.as_str()).map(String::from),
                     secure: entry.get("secure").and_then(|v| v.as_bool()),
                     http_only: entry.get("httpOnly").and_then(|v| v.as_bool()),
-                    same_site: entry.get("sameSite").and_then(|v| v.as_str()).and_then(
-                        |s| match s {
-                            "Strict" => Some(rayo_core::SameSite::Strict),
-                            "Lax" => Some(rayo_core::SameSite::Lax),
-                            "None" => Some(rayo_core::SameSite::None),
-                            _ => None,
-                        },
-                    ),
+                    same_site: entry
+                        .get("sameSite")
+                        .and_then(|v| v.as_str())
+                        .and_then(rayo_core::SameSite::parse),
                     expires: entry.get("expires").and_then(|v| v.as_f64()),
                 });
             }
 
-            let count = cookies.len();
-            page.set_cookies(cookies).await.map_err(internal_err)?;
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Set {count} cookie(s)"
-            ))]))
+            let result = page.set_cookies(cookies).await.map_err(internal_err)?;
+            let mut msg = format!("Set {} cookie(s)", result.set);
+            if !result.failed.is_empty() {
+                msg.push_str(&format!(
+                    " ({} failed: {:?})",
+                    result.failed.len(),
+                    result.failed
+                ));
+            }
+            Ok(CallToolResult::success(vec![Content::text(msg)]))
         }
         "get" => {
             let cookies = page.get_cookies().await.map_err(internal_err)?;
@@ -362,7 +371,7 @@ pub async fn handle_cookie(
             let filtered: Vec<_> = if let Some(domain) = domain_filter {
                 cookies
                     .into_iter()
-                    .filter(|c| c.domain.contains(domain))
+                    .filter(|c| rayo_core::matches_domain(&c.domain, domain))
                     .collect()
             } else {
                 cookies
@@ -376,7 +385,7 @@ pub async fn handle_cookie(
                 let cookies = page.get_cookies().await.map_err(internal_err)?;
                 let mut cleared = 0;
                 for cookie in &cookies {
-                    if cookie.domain.contains(domain) {
+                    if rayo_core::matches_domain(&cookie.domain, domain) {
                         page.delete_cookie(&cookie.name, Some(&cookie.domain))
                             .await
                             .map_err(internal_err)?;
@@ -403,7 +412,7 @@ pub async fn handle_cookie(
             let filtered: Vec<_> = if let Some(domain) = domain_filter {
                 cookies
                     .into_iter()
-                    .filter(|c| c.domain.contains(domain))
+                    .filter(|c| rayo_core::matches_domain(&c.domain, domain))
                     .collect()
             } else {
                 cookies
@@ -439,18 +448,62 @@ pub async fn handle_cookie(
             let domain = params.get("domain").and_then(|v| v.as_str());
             let profile = params.get("profile").and_then(|v| v.as_str());
 
-            let imported = rayo_core::cookie_import::import_cookies(browser, domain, profile)
+            let import = rayo_core::cookie_import::import_cookies(browser, domain, profile)
                 .map_err(internal_err)?;
 
-            let count = imported.len();
-            page.set_cookies(imported).await.map_err(internal_err)?;
+            if import.cookies.is_empty() {
+                let mut msg = format!(
+                    "No cookies found in {browser_name} (profile: '{}')",
+                    import.profile_used,
+                );
+                if let Some(d) = domain {
+                    msg.push_str(&format!(" for domain '{d}'"));
+                }
+                if !import.decrypt_failed.is_empty() {
+                    msg.push_str(&format!(
+                        ". {} cookie(s) failed decryption: {:?}",
+                        import.decrypt_failed.len(),
+                        import.decrypt_failed,
+                    ));
+                }
+                let other_profiles: Vec<_> = import
+                    .available_profiles
+                    .iter()
+                    .filter(|p| p.as_str() != import.profile_used)
+                    .collect();
+                if !other_profiles.is_empty() {
+                    msg.push_str(&format!(". Other profiles available: {other_profiles:?}",));
+                }
+                return Ok(CallToolResult::success(vec![Content::text(msg)]));
+            }
+
+            let set_result = page
+                .set_cookies(import.cookies)
+                .await
+                .map_err(internal_err)?;
 
             let domain_msg = domain
                 .map(|d| format!(" for domain '{d}'"))
                 .unwrap_or_default();
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Imported {count} cookie(s) from {browser_name}{domain_msg}"
-            ))]))
+
+            let mut msg = format!(
+                "Imported {} cookie(s) from {browser_name} (profile: '{}'){domain_msg}",
+                set_result.set, import.profile_used,
+            );
+            if !set_result.failed.is_empty() {
+                msg.push_str(&format!(
+                    " ({} rejected by Chrome: {:?})",
+                    set_result.failed.len(),
+                    set_result.failed,
+                ));
+            }
+            if !import.decrypt_failed.is_empty() {
+                msg.push_str(&format!(
+                    " ({} failed decryption)",
+                    import.decrypt_failed.len(),
+                ));
+            }
+            Ok(CallToolResult::success(vec![Content::text(msg)]))
         }
         "load" => {
             let path = params
@@ -472,12 +525,7 @@ pub async fn handle_cookie(
                     url: None,
                     secure: Some(c.secure),
                     http_only: Some(c.http_only),
-                    same_site: c.same_site.as_deref().and_then(|s| match s {
-                        "Strict" => Some(rayo_core::SameSite::Strict),
-                        "Lax" => Some(rayo_core::SameSite::Lax),
-                        "None" => Some(rayo_core::SameSite::None),
-                        _ => None,
-                    }),
+                    same_site: c.same_site.as_deref().and_then(rayo_core::SameSite::parse),
                     expires: if c.expires > 0.0 {
                         Some(c.expires)
                     } else {
@@ -485,11 +533,12 @@ pub async fn handle_cookie(
                     },
                 })
                 .collect();
-            let count = cookies.len();
-            page.set_cookies(cookies).await.map_err(internal_err)?;
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Loaded {count} cookie(s) from {path}"
-            ))]))
+            let result = page.set_cookies(cookies).await.map_err(internal_err)?;
+            let mut msg = format!("Loaded {} cookie(s) from {path}", result.set);
+            if !result.failed.is_empty() {
+                msg.push_str(&format!(" ({} failed)", result.failed.len()));
+            }
+            Ok(CallToolResult::success(vec![Content::text(msg)]))
         }
         _ => Err(McpError::invalid_params(
             format!("Unknown cookie action: {action}"),

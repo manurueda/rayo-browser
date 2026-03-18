@@ -72,7 +72,8 @@ async fn test_mcp_tools() {
     {
         let params =
             serde_json::json!({ "action": "goto", "url": format!("{base_url}/index.html") });
-        let result = rayo_mcp::tools::handle_navigate(&page, params.as_object().unwrap()).await;
+        let result =
+            rayo_mcp::tools::handle_navigate(&page, params.as_object().unwrap(), None).await;
         assert!(result.is_ok(), "navigate failed: {:?}", result.err());
         let json = serde_json::to_string(&result.unwrap().content).unwrap();
         assert!(
@@ -188,7 +189,7 @@ async fn test_mcp_tools() {
     {
         // Navigate back to index first
         let nav = serde_json::json!({ "action": "goto", "url": format!("{base_url}/index.html") });
-        rayo_mcp::tools::handle_navigate(&page, nav.as_object().unwrap())
+        rayo_mcp::tools::handle_navigate(&page, nav.as_object().unwrap(), None)
             .await
             .ok();
 
@@ -202,7 +203,7 @@ async fn test_mcp_tools() {
     // --- Test: rayo_interact (type) on form ---
     {
         let nav = serde_json::json!({ "action": "goto", "url": format!("{base_url}/form.html") });
-        rayo_mcp::tools::handle_navigate(&page, nav.as_object().unwrap())
+        rayo_mcp::tools::handle_navigate(&page, nav.as_object().unwrap(), None)
             .await
             .ok();
 
@@ -236,17 +237,17 @@ async fn test_mcp_tools() {
     {
         // Navigate to index, then form, then back
         let nav1 = serde_json::json!({ "action": "goto", "url": format!("{base_url}/index.html") });
-        rayo_mcp::tools::handle_navigate(&page, nav1.as_object().unwrap())
+        rayo_mcp::tools::handle_navigate(&page, nav1.as_object().unwrap(), None)
             .await
             .unwrap();
 
         let nav2 = serde_json::json!({ "action": "goto", "url": format!("{base_url}/form.html") });
-        rayo_mcp::tools::handle_navigate(&page, nav2.as_object().unwrap())
+        rayo_mcp::tools::handle_navigate(&page, nav2.as_object().unwrap(), None)
             .await
             .unwrap();
 
         let back = serde_json::json!({ "action": "back" });
-        let result = rayo_mcp::tools::handle_navigate(&page, back.as_object().unwrap()).await;
+        let result = rayo_mcp::tools::handle_navigate(&page, back.as_object().unwrap(), None).await;
         assert!(result.is_ok(), "navigate back failed: {:?}", result.err());
         let json = serde_json::to_string(&result.unwrap().content).unwrap();
         assert!(
@@ -255,7 +256,8 @@ async fn test_mcp_tools() {
         );
 
         let forward = serde_json::json!({ "action": "forward" });
-        let result = rayo_mcp::tools::handle_navigate(&page, forward.as_object().unwrap()).await;
+        let result =
+            rayo_mcp::tools::handle_navigate(&page, forward.as_object().unwrap(), None).await;
         assert!(
             result.is_ok(),
             "navigate forward failed: {:?}",
@@ -369,11 +371,13 @@ async fn test_mcp_tools() {
         let page2 = browser.new_page().await.expect("Failed to create page2");
 
         let nav1 = serde_json::json!({ "action": "goto", "url": format!("{base_url}/index.html") });
-        let result = rayo_mcp::tools::handle_navigate(&page1, nav1.as_object().unwrap()).await;
+        let result =
+            rayo_mcp::tools::handle_navigate(&page1, nav1.as_object().unwrap(), None).await;
         assert!(result.is_ok(), "navigate page1 failed: {:?}", result.err());
 
         let nav2 = serde_json::json!({ "action": "goto", "url": format!("{base_url}/form.html") });
-        let result = rayo_mcp::tools::handle_navigate(&page2, nav2.as_object().unwrap()).await;
+        let result =
+            rayo_mcp::tools::handle_navigate(&page2, nav2.as_object().unwrap(), None).await;
         assert!(result.is_ok(), "navigate page2 failed: {:?}", result.err());
 
         // Observe each tab independently
