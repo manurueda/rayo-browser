@@ -1,4 +1,4 @@
-//! Axum web server for the test UI — REST API + WebSocket.
+//! Axum web server — API + embedded dashboard UI, single binary, single port.
 
 use crate::loader;
 use crate::result::SuiteResult;
@@ -10,14 +10,20 @@ use axum::{
         State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
-    http::StatusCode,
-    response::{Html, IntoResponse, Json},
+    http::{StatusCode, Uri, header},
+    response::{Html, IntoResponse, Json, Response},
     routing::{get, post},
 };
+use rust_embed::Embed;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast};
 use tower_http::cors::CorsLayer;
+
+/// Static UI files built from Next.js and embedded at compile time.
+#[derive(Embed)]
+#[folder = "../../ui/out/"]
+struct UiAssets;
 
 /// Shared state for the server.
 struct AppState {
@@ -27,11 +33,12 @@ struct AppState {
     event_tx: broadcast::Sender<TestEvent>,
 }
 
-/// Start the web server.
+/// Start the web server with embedded dashboard.
 pub async fn start_server(
     tests_dir: PathBuf,
     baselines_dir: PathBuf,
     port: u16,
+    open_browser: bool,
 ) -> anyhow::Result<()> {
     let (event_tx, _) = broadcast::channel(256);
 
@@ -43,18 +50,25 @@ pub async fn start_server(
     });
 
     let app = Router::new()
+        // API routes
         .route("/api/suites", get(list_suites))
         .route("/api/results", get(list_results))
         .route("/api/run", post(run_suite))
         .route("/api/run/{name}", post(run_named_suite))
         .route("/ws/live", get(ws_handler))
-        .route("/", get(index_page))
+        // Embedded UI — catch-all for everything else
+        .fallback(get(serve_ui))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{port}");
-    tracing::info!("rayo-test server listening on http://localhost:{port}");
+    let url = format!("http://localhost:{port}");
+    eprintln!("\n  ⚡ rayo-test dashboard: {url}\n");
 
+    if open_browser {
+        let _ = open::that(&url);
+    }
+
+    let addr = format!("0.0.0.0:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .context("Failed to bind server port")?;
@@ -62,25 +76,61 @@ pub async fn start_server(
     Ok(())
 }
 
-async fn index_page() -> Html<&'static str> {
-    Html(
-        r#"<!DOCTYPE html>
-<html>
-<head><title>rayo-test</title></head>
-<body style="font-family: sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 2rem;">
-<h1>rayo-test server</h1>
-<p>API endpoints:</p>
-<ul>
-<li>GET <a href="/api/suites">/api/suites</a> - List test suites</li>
-<li>GET <a href="/api/results">/api/results</a> - List results</li>
-<li>POST /api/run - Run all suites</li>
-<li>POST /api/run/:name - Run a specific suite</li>
-<li>WS /ws/live - Live test events</li>
-</ul>
-<p>Start the Next.js UI for the full experience.</p>
-</body>
-</html>"#,
-    )
+/// Serve embedded UI assets. Falls back to index.html for client-side routing.
+async fn serve_ui(uri: Uri) -> impl IntoResponse {
+    let path = uri.path().trim_start_matches('/');
+
+    // Try exact file match first
+    if let Some(file) = UiAssets::get(path) {
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime.as_ref())
+            .header(header::CACHE_CONTROL, "public, max-age=3600")
+            .body(axum::body::Body::from(file.data.to_vec()))
+            .unwrap()
+            .into_response();
+    }
+
+    // Try path.html (Next.js static export pattern)
+    let html_path = format!("{path}.html");
+    if let Some(file) = UiAssets::get(&html_path) {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .body(axum::body::Body::from(file.data.to_vec()))
+            .unwrap()
+            .into_response();
+    }
+
+    // Try path/index.html
+    let index_path = if path.is_empty() {
+        "index.html".to_string()
+    } else {
+        format!("{path}/index.html")
+    };
+    if let Some(file) = UiAssets::get(&index_path) {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .body(axum::body::Body::from(file.data.to_vec()))
+            .unwrap()
+            .into_response();
+    }
+
+    // Fall back to index.html for client-side routing
+    if let Some(file) = UiAssets::get("index.html") {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .body(axum::body::Body::from(file.data.to_vec()))
+            .unwrap()
+            .into_response();
+    }
+
+    // No UI files embedded
+    Html("rayo-test server running. UI assets not found — rebuild with: cd ui && npm run build")
+        .into_response()
 }
 
 async fn list_suites(State(state): State<Arc<AppState>>) -> impl IntoResponse {

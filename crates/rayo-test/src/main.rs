@@ -47,7 +47,7 @@ enum Commands {
         tests_dir: PathBuf,
     },
 
-    /// Start the web UI server
+    /// Start the dashboard (opens browser automatically)
     Ui {
         /// Path to test files directory
         #[arg(short, long, default_value = ".rayo/tests")]
@@ -60,6 +60,10 @@ enum Commands {
         /// Server port
         #[arg(short, long, default_value = "4040")]
         port: u16,
+
+        /// Don't open browser automatically
+        #[arg(long)]
+        no_open: bool,
     },
 }
 
@@ -193,8 +197,9 @@ async fn main() -> anyhow::Result<()> {
             tests_dir,
             baselines_dir,
             port,
+            no_open,
         } => {
-            rayo_test::server::start_server(tests_dir, baselines_dir, port).await?;
+            rayo_test::server::start_server(tests_dir, baselines_dir, port, !no_open).await?;
         }
     }
 

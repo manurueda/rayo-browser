@@ -217,22 +217,21 @@ AI agents can also use visual testing directly via MCP — no YAML needed:
 ### CLI
 
 ```bash
-rayo-test list                     # List available test suites
 rayo-test run                      # Run all suites
 rayo-test run --suite "Login Flow" # Run a specific suite
 rayo-test run --json report.json   # JSON report
 rayo-test run --html report.html   # Self-contained HTML report
-rayo-test ui                       # Start the web dashboard
+rayo-test list                     # List available test suites
+rayo-test ui                       # Open the dashboard
 ```
 
-### Web Dashboard
+### Dashboard
 
 ```bash
-rayo-test ui          # Start API server on :4040
-cd ui && npm run dev  # Start Next.js dashboard on :3001
+rayo-test ui
 ```
 
-Dashboard, suite detail view, and live runner with real-time WebSocket updates as tests execute.
+One command. Opens your browser to `http://localhost:4040` with the full dashboard — health stats, suite list, step-by-step results with diff reports, and a live runner with real-time WebSocket updates. Everything is embedded in the binary, no Node.js needed.
 
 ## 📊 Full benchmark breakdown
 
@@ -341,8 +340,7 @@ cargo test --workspace           # Test (needs Chrome)
 cargo bench                      # Benchmark
 cargo run --bin rayo-mcp         # Start MCP server
 cargo run --bin rayo-test -- run # Run E2E test suites
-cargo run --bin rayo-test -- ui  # Start test runner server
-cd ui && npm run dev             # Start dashboard UI
+cargo run --bin rayo-test -- ui  # Open dashboard (embedded UI)
 cargo clippy --workspace         # Lint
 cargo fmt --check --all          # Check formatting
 ```

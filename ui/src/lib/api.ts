@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4040";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export interface SuiteSummary {
   name: string;
@@ -103,7 +103,8 @@ export async function runSuite(name: string): Promise<SuiteResult> {
 }
 
 export function connectLive(onEvent: (event: TestEvent) => void): WebSocket {
-  const wsUrl = API_BASE.replace(/^http/, "ws") + "/ws/live";
+  const wsBase = API_BASE || `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
+  const wsUrl = (API_BASE ? API_BASE.replace(/^http/, "ws") : wsBase) + "/ws/live";
   const ws = new WebSocket(wsUrl);
   ws.onmessage = (e) => {
     try {
