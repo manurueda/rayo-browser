@@ -33,6 +33,7 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     name = "rayo-ui",
+    version = env!("CARGO_PKG_VERSION"),
     about = "AI-native E2E test runner and dashboard for rayo-browser"
 )]
 struct Cli {
