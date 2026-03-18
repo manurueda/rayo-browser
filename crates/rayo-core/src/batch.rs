@@ -64,6 +64,13 @@ pub enum BatchAction {
         #[serde(flatten)]
         target: ActionTarget,
     },
+    /// Inspect an element's computed styles and diagnostics.
+    Inspect {
+        #[serde(flatten)]
+        target: ActionTarget,
+        #[serde(default)]
+        compact: bool,
+    },
 }
 
 fn default_timeout() -> u64 {

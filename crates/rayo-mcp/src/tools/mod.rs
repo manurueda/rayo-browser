@@ -184,6 +184,79 @@ pub async fn handle_observe(
                 Content::text(serde_json::to_string(&meta).unwrap_or_default()),
             ]))
         }
+        "inspect" => {
+            let selector = params.get("selector").and_then(|v| v.as_str());
+            let id = params
+                .get("id")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+
+            if selector.is_none() && id.is_none() {
+                return Err(McpError::invalid_params(
+                    "inspect requires 'id' (page_map element ID) or 'selector' (CSS selector). Use selector for non-interactive elements.",
+                    None,
+                ));
+            }
+
+            let properties = params
+                .get("properties")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                });
+            let all = params.get("all").and_then(|v| v.as_bool()).unwrap_or(false);
+            let compact = params
+                .get("compact")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let diff = params
+                .get("diff")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let expect = params.get("expect").and_then(|v| v.as_object()).map(|obj| {
+                obj.iter()
+                    .filter_map(|(k, v)| v.as_str().map(|val| (k.clone(), val.to_string())))
+                    .collect()
+            });
+
+            let options = rayo_core::inspect::InspectOptions {
+                properties,
+                all,
+                compact,
+                diff,
+                expect,
+            };
+
+            // Support multi-element via ids array
+            let ids: Option<Vec<usize>> = params.get("ids").and_then(|v| v.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as usize))
+                    .collect()
+            });
+
+            if let Some(ids) = ids {
+                let mut results = Vec::new();
+                for eid in ids {
+                    match page.inspect_element(None, Some(eid), &options).await {
+                        Ok(r) => results.push(serde_json::to_value(&r).unwrap_or_default()),
+                        Err(e) => {
+                            results.push(serde_json::json!({ "error": e.to_string(), "id": eid }))
+                        }
+                    }
+                }
+                let json = serde_json::to_string(&results).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            } else {
+                let result = page
+                    .inspect_element(selector, id, &options)
+                    .await
+                    .map_err(internal_err)?;
+                let json = serde_json::to_string(&result).unwrap_or_default();
+                Ok(CallToolResult::success(vec![Content::text(json)]))
+            }
+        }
         _ => Err(McpError::invalid_params(
             format!("Unknown observe mode: {mode}"),
             None,

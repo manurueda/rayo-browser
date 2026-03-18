@@ -39,6 +39,7 @@ pub enum SpanCategory {
     PageMap,
     RuleEvaluation,
     Auth,
+    Inspect,
     User,
 }
 
@@ -59,6 +60,7 @@ impl SpanCategory {
             Self::PageMap => "page_map",
             Self::RuleEvaluation => "rule.eval",
             Self::Auth => "auth",
+            Self::Inspect => "inspect",
             Self::User => "user",
         }
     }

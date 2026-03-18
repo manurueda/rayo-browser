@@ -27,6 +27,28 @@
 
 ## P2: Post-launch
 
+### Multi-element batch inspect
+- Allow `rayo_observe mode=inspect ids=[3,7,12]` to inspect multiple elements in one call
+- Parallel CDP calls per element (already done for single, extend to N)
+- Useful for comparing styles across elements (e.g., "verify all buttons have same color")
+- **Effort: S | Priority: P2 | Depends on: inspect mode (shipped)**
+
+### Inspect: event listeners
+- Add event listener extraction to inspect mode
+- Uses DevTools-only `getEventListeners()` API via `Runtime.evaluate` in console context
+- Returns which events are bound (click, keydown, etc.)
+- **Effort: S | Priority: P2**
+
+### Inspect: pseudo-element styles
+- Add ::before/::after computed styles to inspect results
+- Uses `getComputedStyle(el, '::before')` in JS evaluation batch
+- **Effort: XS | Priority: P2**
+
+### Inspect: theme-aware observation
+- Detect CSS custom property scope and report theme context
+- Flag conflicting theme signals (class=light but color-scheme: dark)
+- **Effort: S | Priority: P2**
+
 ### Accessibility tree observation mode
 - Add `a11y` mode to `rayo_observe` using CDP `Accessibility.getFullAXTree`
 - Even more token-efficient than page_map for complex pages
@@ -162,6 +184,12 @@
 - Quarantine for flaky tests
 
 ## P3: Future
+
+### Live CSS mutation subscriptions
+- Subscribe to CDP `CSS.styleSheetChanged` events for reactive CSS monitoring
+- Agent gets notified when styles change without polling
+- Enables: "watch this element and tell me when its background changes"
+- **Effort: M | Priority: P3 | Depends on: inspect mode + event-driven architecture**
 
 ### Playwright compatibility shim
 - Accept Playwright MCP tool schemas, translate to rayo calls

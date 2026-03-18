@@ -47,7 +47,7 @@ Tests use a local axum server serving fixtures from `tests/fixtures/`.
 | Tool | Purpose | Tokens |
 |------|---------|--------|
 | `rayo_navigate` | goto, reload, back, forward, new_tab, close_tab, list_tabs, switch_tab | ~300 |
-| `rayo_observe` | page_map, text, screenshot | ~300 |
+| `rayo_observe` | page_map, text, screenshot, inspect (computed CSS, applied rules, diagnostics) | ~300-530 |
 | `rayo_interact` | click, type, select, scroll | ~250 |
 | `rayo_batch` | execute multiple actions in 1 call | ~350 |
 | `rayo_cookie` | set, get, clear cookies | ~250 |
@@ -87,6 +87,13 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - Auto-update state stored in ~/.rayo/ (last-check, update-marker, lock)
 - Disable auto-update: RAYO_NO_UPDATE=1
 - Release pipeline: cargo-dist builds platform binaries on git tag push
+- Element inspection: `rayo_observe mode=inspect` for computed CSS, applied rules, box model, visibility diagnosis
+- When verifying CSS changes, use `inspect` mode instead of screenshots — more reliable and token-efficient
+- Inspect uses CDP CSS domain (CSS.getComputedStyleForNode, CSS.getMatchedStylesForNode) + JS diagnostics
+- Inspect supports property filtering (curated ~40 default, category shorthands, `all: true`)
+- Style diff via `diff: true` — compares against cached previous inspect (separate cache, survives DOM mutations)
+- Expect assertions via `expect: {"background-color": "#hex"}` — returns pass/fail per property
+- First use of `tokio::try_join!` for parallel CDP calls in browser.rs
 
 ## Visual testing (rayo-ui)
 - Test definitions in `.rayo/tests/*.test.yaml`

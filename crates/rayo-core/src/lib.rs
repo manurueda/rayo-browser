@@ -25,6 +25,7 @@ pub mod cookie_import;
 #[cfg(feature = "cookie-import")]
 pub mod detect;
 pub mod error;
+pub mod inspect;
 pub mod network;
 pub mod page_map;
 pub mod persist;

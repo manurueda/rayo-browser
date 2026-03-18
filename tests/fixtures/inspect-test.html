@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Inspect Test Fixture</title>
+    <style>
+        :root {
+            --primary: #007bff;
+            --bg-main: var(--bg-secondary);
+            --bg-secondary: #1a1a2e;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .panel {
+            background-color: var(--bg-main);
+            color: white;
+            width: 400px;
+            height: 300px;
+            padding: 16px;
+            margin: 20px;
+            border: 2px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .hidden-by-display {
+            display: none;
+            width: 100px;
+            height: 100px;
+        }
+
+        .hidden-by-opacity {
+            opacity: 0;
+            width: 100px;
+            height: 100px;
+        }
+
+        .hidden-by-parent {
+            width: 100px;
+            height: 100px;
+            background: red;
+        }
+
+        .hidden-parent {
+            display: none;
+        }
+
+        .zero-size {
+            width: 0;
+            height: 0;
+            background: red;
+        }
+
+        .off-screen {
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
+            width: 100px;
+            height: 100px;
+        }
+
+        .semi-transparent {
+            background-color: rgba(255, 255, 255, 0.05);
+            width: 200px;
+            height: 200px;
+            padding: 10px;
+        }
+
+        .overflow-clip {
+            overflow: hidden;
+            width: 100px;
+            height: 100px;
+            position: relative;
+        }
+
+        .clipped-child {
+            position: absolute;
+            left: 200px;
+            width: 50px;
+            height: 50px;
+            background: green;
+        }
+
+        .inline-styled {
+            width: 150px;
+            height: 75px;
+        }
+    </style>
+</head>
+<body>
+    <div class="panel" id="main-panel">
+        <div class="panel-title">Test Panel</div>
+        <p>Content here</p>
+        <button id="btn-primary">Click Me</button>
+    </div>
+
+    <div class="hidden-by-display" id="hidden-display">Hidden</div>
+    <div class="hidden-by-opacity" id="hidden-opacity">Invisible</div>
+    <div class="hidden-parent">
+        <div class="hidden-by-parent" id="hidden-parent-child">Hidden by parent</div>
+    </div>
+
+    <div class="zero-size" id="zero-el"></div>
+    <div class="off-screen" id="offscreen-el">Off screen</div>
+
+    <div class="semi-transparent" id="semi-bg">
+        Semi-transparent background
+    </div>
+
+    <div class="overflow-clip">
+        <div class="clipped-child" id="clipped">Clipped</div>
+    </div>
+
+    <div class="inline-styled" id="inline-el" style="background-color: #ff0000; z-index: 10;">
+        Inline styled
+    </div>
+</body>
+</html>

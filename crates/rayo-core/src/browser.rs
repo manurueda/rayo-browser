@@ -8,6 +8,12 @@ use std::sync::Arc;
 use crate::cookie::{CookieInfo, CookieSetResult, SameSite, SetCookie};
 use crate::network::{CapturedRequest, NetworkInterceptor};
 use chromiumoxide::browser::{Browser as CdpBrowser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::css::{
+    EnableParams as CssEnableParams, GetComputedStyleForNodeParams, GetMatchedStylesForNodeParams,
+};
+use chromiumoxide::cdp::browser_protocol::dom::{
+    GetBoxModelParams, GetDocumentParams, QuerySelectorParams,
+};
 use chromiumoxide::cdp::browser_protocol::fetch::{
     ContinueRequestParams, EnableParams as FetchEnableParams, EventRequestPaused,
     FailRequestParams, FulfillRequestParams, HeaderEntry as FetchHeaderEntry,
@@ -22,7 +28,13 @@ use chromiumoxide::cdp::browser_protocol::page::{
 };
 use chromiumoxide::page::Page as CdpPage;
 use futures::StreamExt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
+
+use crate::inspect::{
+    self, AccessibilityInfo, AppliedRule, DiffCache, InspectOptions, InspectResult, InspectTarget,
+    StyleChange, StyleDiff, VisibilityInfo,
+};
 
 use crate::batch::{ActionTarget, BatchAction, BatchActionResult, BatchResult};
 use crate::error::RayoError;
@@ -240,6 +252,8 @@ impl RayoBrowser {
             selector_cache: Arc::new(Mutex::new(SelectorCache::new(1024))),
             profiler: self.profiler.clone(),
             page_map_cache: Arc::new(Mutex::new(None)),
+            css_enabled: AtomicBool::new(false),
+            diff_cache: Arc::new(Mutex::new(DiffCache::new(256))),
         })
     }
 
@@ -299,6 +313,10 @@ pub struct RayoPage {
     selector_cache: Arc<Mutex<SelectorCache>>,
     profiler: Profiler,
     page_map_cache: Arc<Mutex<Option<PageMap>>>,
+    /// Whether CSS domain has been enabled on this page (once per session).
+    css_enabled: AtomicBool,
+    /// Separate cache for style diff — survives DOM mutations.
+    diff_cache: Arc<Mutex<DiffCache>>,
 }
 
 impl RayoPage {
@@ -1179,6 +1197,15 @@ impl RayoPage {
                     let (sel, id) = target_to_selector_id(target);
                     self.hover_raw(sel, id).await.map(|_| None)
                 }
+                BatchAction::Inspect { target, compact } => {
+                    let (sel, id) = target_to_selector_id(target);
+                    let options = InspectOptions {
+                        compact: *compact,
+                        ..Default::default()
+                    };
+                    let result = self.inspect_element(sel, id, &options).await?;
+                    Ok(Some(serde_json::to_value(&result).unwrap_or_default()))
+                }
                 BatchAction::Scroll { target, x, y } => {
                     if let Some(t) = target {
                         let (sel, id) = target_to_selector_id(t);
@@ -1693,6 +1720,408 @@ impl RayoPage {
         Ok(())
     }
 
+    /// Inspect an element's computed styles, box model, applied rules, and diagnostics.
+    ///
+    /// This is the "DevTools Elements panel" for AI agents. Uses CDP CSS domain
+    /// for applied rules + computed styles, and JS evaluation for visibility/anomaly
+    /// diagnostics. All CDP calls run in parallel via tokio::try_join!.
+    pub async fn inspect_element(
+        &self,
+        selector: Option<&str>,
+        id: Option<usize>,
+        options: &InspectOptions,
+    ) -> Result<InspectResult, RayoError> {
+        let _span = self
+            .profiler
+            .start_span("inspect_element", SpanCategory::Inspect);
+
+        // Resolve the element selector
+        let resolved_selector = self.resolve_selector(selector, id).await?;
+
+        // Enable CSS domain once per session
+        if !self.css_enabled.load(Ordering::Relaxed) {
+            let _ = self.page.execute(CssEnableParams::default()).await;
+            self.css_enabled.store(true, Ordering::Relaxed);
+        }
+
+        // Get the DOM document root, then querySelector to get nodeId
+        let doc = self
+            .page
+            .execute(GetDocumentParams::builder().depth(0).build())
+            .await
+            .map_err(|e| RayoError::Cdp(format!("DOM.getDocument: {e}")))?;
+        let root_node_id = doc.result.root.node_id;
+
+        let qs_result = self
+            .page
+            .execute(QuerySelectorParams::new(root_node_id, &resolved_selector))
+            .await
+            .map_err(|e| RayoError::ElementNotFound {
+                selector: format!("{resolved_selector} (CDP querySelector failed: {e})"),
+            })?;
+        let node_id = qs_result.result.node_id;
+
+        // Parallel CDP calls: computed styles, matched rules, box model
+        // Plus JS diagnostics — all independent, fan out with tokio::try_join!
+        let computed_fut = self
+            .page
+            .execute(GetComputedStyleForNodeParams::new(node_id));
+        let matched_fut = self
+            .page
+            .execute(GetMatchedStylesForNodeParams::new(node_id));
+        let box_model_fut = self
+            .page
+            .execute(GetBoxModelParams::builder().node_id(node_id).build());
+        let diag_js = format!(
+            "{}({})",
+            inspect::INSPECT_DIAGNOSTICS_JS,
+            serde_json::to_string(&resolved_selector).unwrap_or_default()
+        );
+        let diag_fut = self.page.evaluate(diag_js);
+
+        let (computed_res, matched_res, box_model_res, diag_res) =
+            tokio::join!(computed_fut, matched_fut, box_model_fut, diag_fut);
+
+        // Process computed styles
+        let mut computed_map = std::collections::HashMap::new();
+        let mut all_vars = std::collections::HashMap::new();
+        if let Ok(computed) = &computed_res {
+            for prop in &computed.result.computed_style {
+                computed_map.insert(prop.name.clone(), prop.value.clone());
+                if prop.name.starts_with("--") {
+                    all_vars.insert(prop.name.clone(), prop.value.clone());
+                }
+            }
+        }
+
+        // Filter properties based on options
+        let filtered_computed = if options.all {
+            Some(computed_map.clone())
+        } else if let Some(ref props) = options.properties {
+            let resolved_props = inspect::resolve_properties(props);
+            let filtered: std::collections::HashMap<_, _> = computed_map
+                .iter()
+                .filter(|(k, _)| resolved_props.contains(k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            Some(filtered)
+        } else {
+            // Curated default
+            let filtered: std::collections::HashMap<_, _> = computed_map
+                .iter()
+                .filter(|(k, _)| inspect::CURATED_PROPERTIES.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            Some(filtered)
+        };
+
+        // Process applied rules (graceful degradation)
+        let applied_rules = if let Ok(matched) = &matched_res {
+            let mut rules = Vec::new();
+            if let Some(ref rule_matches) = matched.result.matched_css_rules {
+                for rm in rule_matches {
+                    let selector_text = rm.rule.selector_list.text.clone();
+                    let mut properties = std::collections::HashMap::new();
+                    for prop in &rm.rule.style.css_properties {
+                        if !prop.name.is_empty()
+                            && !prop.value.is_empty()
+                            && !prop.disabled.unwrap_or(false)
+                        {
+                            properties.insert(prop.name.clone(), prop.value.clone());
+                        }
+                    }
+                    if !properties.is_empty() {
+                        let source = rm
+                            .rule
+                            .style
+                            .range
+                            .as_ref()
+                            .map(|r| format!("line {}", r.start_line));
+                        rules.push(AppliedRule {
+                            selector: selector_text,
+                            source,
+                            properties,
+                            specificity: None,
+                        });
+                    }
+                }
+            }
+            // Include inline styles
+            if let Some(ref inline) = matched.result.inline_style {
+                let mut properties = std::collections::HashMap::new();
+                for prop in &inline.css_properties {
+                    if !prop.name.is_empty() && !prop.value.is_empty() {
+                        properties.insert(prop.name.clone(), prop.value.clone());
+                    }
+                }
+                if !properties.is_empty() {
+                    rules.insert(
+                        0,
+                        AppliedRule {
+                            selector: "[inline]".into(),
+                            source: Some("inline style".into()),
+                            properties,
+                            specificity: Some([1, 0, 0]),
+                        },
+                    );
+                }
+            }
+            if rules.is_empty() { None } else { Some(rules) }
+        } else {
+            None
+        };
+
+        // Process box model (graceful degradation)
+        let box_model = if let Ok(bm) = &box_model_res {
+            let m = &bm.result.model;
+            Some(inspect::BoxModel {
+                content: [m.width as f64, m.height as f64],
+                padding: quad_to_dimensions(&m.padding, &m.content),
+                border: quad_to_dimensions(&m.border, &m.padding),
+                margin: quad_to_dimensions(&m.margin, &m.border),
+            })
+        } else {
+            None
+        };
+
+        // Process JS diagnostics (visibility, anomalies)
+        let (visibility, anomalies, tag) = if let Ok(diag_val) = diag_res {
+            let diag: serde_json::Value = diag_val.into_value().unwrap_or_default();
+            let vis = diag.get("visibility").map(|v| VisibilityInfo {
+                visible: v.get("visible").and_then(|b| b.as_bool()).unwrap_or(true),
+                diagnosis: v
+                    .get("diagnosis")
+                    .and_then(|d| d.as_str())
+                    .map(String::from),
+            });
+            let anomalies: Vec<String> = diag
+                .get("anomalies")
+                .and_then(|a| a.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let tag = diag
+                .get("tag")
+                .and_then(|t| t.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            (vis, anomalies, tag)
+        } else {
+            (None, vec![], "unknown".to_string())
+        };
+
+        // Resolve CSS variable chains
+        let variables = if !all_vars.is_empty() {
+            // Collect properties that reference variables from matched rules
+            let mut matched_vars = std::collections::HashMap::new();
+            if let Some(ref rules) = applied_rules {
+                for rule in rules {
+                    for (name, value) in &rule.properties {
+                        if value.contains("var(") {
+                            matched_vars.insert(name.clone(), value.clone());
+                        }
+                    }
+                }
+            }
+            let chains = inspect::resolve_variable_chains(&matched_vars, &all_vars);
+            if chains.is_empty() {
+                None
+            } else {
+                Some(chains)
+            }
+        } else {
+            None
+        };
+
+        // Accessibility info (via JS since CDP a11y domain is heavyweight)
+        let a11y = if !options.compact {
+            let a11y_js = format!(
+                r#"(() => {{
+                    const el = document.querySelector({});
+                    if (!el) return null;
+                    return {{
+                        role: el.getAttribute('role') || el.tagName.toLowerCase(),
+                        name: el.getAttribute('aria-label') || el.textContent?.trim()?.slice(0, 100) || null,
+                        focusable: el.tabIndex >= 0,
+                        states: [
+                            el.getAttribute('aria-expanded') ? 'expanded=' + el.getAttribute('aria-expanded') : null,
+                            el.getAttribute('aria-disabled') === 'true' ? 'disabled' : null,
+                            el.getAttribute('aria-hidden') === 'true' ? 'hidden' : null,
+                            el.getAttribute('aria-selected') === 'true' ? 'selected' : null,
+                        ].filter(Boolean),
+                    }};
+                }})()"#,
+                serde_json::to_string(&resolved_selector).unwrap_or_default()
+            );
+            if let Ok(a11y_val) = self.page.evaluate(a11y_js).await {
+                let v: serde_json::Value = a11y_val.into_value().unwrap_or_default();
+                if v.is_object() {
+                    Some(AccessibilityInfo {
+                        role: v.get("role").and_then(|r| r.as_str()).map(String::from),
+                        name: v.get("name").and_then(|n| n.as_str()).map(String::from),
+                        focusable: v
+                            .get("focusable")
+                            .and_then(|f| f.as_bool())
+                            .unwrap_or(false),
+                        states: v
+                            .get("states")
+                            .and_then(|s| s.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|s| s.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Style diff (opt-in)
+        let diff = if options.diff {
+            let mut dc = self.diff_cache.lock().await;
+            let prev = dc.get(&resolved_selector).cloned();
+            if let Some(prev_styles) = prev {
+                let mut changed = std::collections::HashMap::new();
+                for (k, v) in &computed_map {
+                    if let Some(prev_v) = prev_styles.get(k)
+                        && prev_v != v
+                    {
+                        changed.insert(
+                            k.clone(),
+                            StyleChange {
+                                before: prev_v.clone(),
+                                after: v.clone(),
+                            },
+                        );
+                    }
+                }
+                if changed.is_empty() {
+                    None
+                } else {
+                    Some(StyleDiff { changed })
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Always cache current computed styles for future diffs
+        self.diff_cache
+            .lock()
+            .await
+            .put(resolved_selector.clone(), computed_map.clone());
+
+        // Expect assertions (opt-in)
+        let expect_results = if let Some(ref expectations) = options.expect {
+            let results: Vec<inspect::ExpectResult> = expectations
+                .iter()
+                .map(|(prop, expected)| {
+                    let actual = computed_map.get(prop).cloned().unwrap_or_default();
+                    let pass = actual == *expected;
+                    inspect::ExpectResult {
+                        property: prop.clone(),
+                        expected: expected.clone(),
+                        actual,
+                        pass,
+                    }
+                })
+                .collect();
+            Some(results)
+        } else {
+            None
+        };
+
+        // Build summary
+        let vis_str = visibility
+            .as_ref()
+            .map(|v| if v.visible { "visible" } else { "hidden" })
+            .unwrap_or("unknown");
+        let dims = box_model
+            .as_ref()
+            .map(|b| format!("{}x{}", b.content[0] as i64, b.content[1] as i64))
+            .unwrap_or_else(|| "?x?".into());
+        let bg = computed_map
+            .get("background-color")
+            .map(|v| format!(", bg: {}", v))
+            .unwrap_or_default();
+        let anomaly_str = if anomalies.is_empty() {
+            ", no anomalies".into()
+        } else {
+            format!(", {} anomalies", anomalies.len())
+        };
+        let summary = format!(
+            "{}.{}: {vis_str}, {dims}{bg}{anomaly_str}",
+            tag, resolved_selector
+        );
+
+        // Collect warnings
+        let mut warnings = Vec::new();
+        if computed_res.is_err() {
+            warnings.push("computed styles unavailable".into());
+        }
+        if matched_res.is_err() {
+            warnings.push("applied rules unavailable (CSS domain error)".into());
+        }
+        if box_model_res.is_err() {
+            warnings.push("box model unavailable (element may be display:none)".into());
+        }
+
+        // Compact mode: strip heavy sections
+        let result = if options.compact {
+            InspectResult {
+                target: InspectTarget {
+                    selector: resolved_selector,
+                    tag,
+                    id,
+                },
+                summary,
+                anomalies,
+                visibility,
+                computed: filtered_computed,
+                box_model,
+                applied_rules: None,
+                variables: None,
+                accessibility: None,
+                diff,
+                expect_results,
+                warnings,
+            }
+        } else {
+            InspectResult {
+                target: InspectTarget {
+                    selector: resolved_selector,
+                    tag,
+                    id,
+                },
+                summary,
+                anomalies,
+                visibility,
+                computed: filtered_computed,
+                box_model,
+                applied_rules,
+                variables,
+                accessibility: a11y,
+                diff,
+                expect_results,
+                warnings,
+            }
+        };
+
+        Ok(result)
+    }
+
     /// Resolve a selector from either a CSS selector or a page map element ID.
     async fn resolve_selector(
         &self,
@@ -1752,6 +2181,27 @@ impl RayoPage {
     }
 }
 
+/// Convert CDP Quad (8 points: 4 corners x,y) to dimension offsets [top, right, bottom, left]
+/// relative to an inner quad.
+fn quad_to_dimensions(
+    outer: &chromiumoxide::cdp::browser_protocol::dom::Quad,
+    inner: &chromiumoxide::cdp::browser_protocol::dom::Quad,
+) -> [f64; 4] {
+    // Quad is [x1,y1, x2,y2, x3,y3, x4,y4] for top-left, top-right, bottom-right, bottom-left
+    let outer_pts = &outer.inner();
+    let inner_pts = &inner.inner();
+    if outer_pts.len() >= 8 && inner_pts.len() >= 8 {
+        [
+            (inner_pts[1] - outer_pts[1]).abs(), // top
+            (outer_pts[2] - inner_pts[2]).abs(), // right
+            (outer_pts[5] - inner_pts[5]).abs(), // bottom
+            (inner_pts[0] - outer_pts[0]).abs(), // left
+        ]
+    } else {
+        [0.0; 4]
+    }
+}
+
 fn target_to_selector_id(target: &ActionTarget) -> (Option<&str>, Option<usize>) {
     match target {
         ActionTarget::Id { id } => (None, Some(*id)),
@@ -1770,6 +2220,7 @@ fn action_name(action: &BatchAction) -> &'static str {
         BatchAction::WaitFor { .. } => "wait_for",
         BatchAction::Scroll { .. } => "scroll",
         BatchAction::Hover { .. } => "hover",
+        BatchAction::Inspect { .. } => "inspect",
     }
 }
 

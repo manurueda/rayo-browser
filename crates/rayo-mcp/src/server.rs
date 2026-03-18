@@ -317,13 +317,20 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_observe",
-                "Observe the page. Modes: page_map (default, ~500 tokens, structured — supports selector to scope to a subtree), text (raw text — supports selector + max_elements), screenshot (base64 JPEG). Optional tab_id.",
+                "Observe the page. Modes: page_map (default, ~500 tokens, structured), text (raw text), screenshot (base64 JPEG), inspect (computed CSS, applied rules with source, box model, visibility diagnosis, layout anomalies — use for CSS verification instead of screenshots). For inspect: use selector for non-interactive elements or id from page_map. Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["page_map", "text", "screenshot"], "default": "page_map" },
-                        "selector": { "type": "string", "description": "CSS selector to scope observation" },
-                        "max_elements": { "type": "integer", "description": "Max elements for text mode with selector (default: 50)", "default": 50 },
+                        "mode": { "type": "string", "enum": ["page_map", "text", "screenshot", "inspect"], "default": "page_map" },
+                        "selector": { "type": "string", "description": "CSS selector to scope observation (required for inspect on non-interactive elements)" },
+                        "id": { "type": "integer", "description": "Element ID from page_map (for inspect mode)" },
+                        "ids": { "type": "array", "items": { "type": "integer" }, "description": "Multiple element IDs for batch inspect" },
+                        "properties": { "type": "array", "items": { "type": "string" }, "description": "CSS properties or categories (layout, color, visibility, spacing, typography) for inspect" },
+                        "all": { "type": "boolean", "description": "Return all ~350 computed properties (inspect)", "default": false },
+                        "compact": { "type": "boolean", "description": "Stripped ~200 token response (inspect)", "default": false },
+                        "diff": { "type": "boolean", "description": "Include style diff from previous inspect (inspect)", "default": false },
+                        "expect": { "type": "object", "description": "Assert expected CSS values (inspect), e.g. {\"background-color\": \"#1a1a2e\"}" },
+                        "max_elements": { "type": "integer", "description": "Max elements for text mode (default: 50)", "default": 50 },
                         "full_page": { "type": "boolean", "default": false },
                         "tab_id": { "type": "string", "description": "Tab ID (default: active tab)" }
                     }
