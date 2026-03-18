@@ -161,4 +161,111 @@ mod tests {
         assert_eq!(extract_string_arg("\"/login\""), Some("/login".into()));
         assert_eq!(extract_string_arg("middleware"), None);
     }
+
+    #[test]
+    fn test_find_after() {
+        assert_eq!(find_after("app.get('/foo')", "app.get("), Some("'/foo')"));
+        assert_eq!(find_after("something else", "app.get("), None);
+    }
+
+    #[test]
+    fn test_extract_routes_from_file() {
+        let dir = std::env::temp_dir().join("rayo_test_express_routes");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Write a package.json so detection works
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"dependencies": {"express": "4.18.0"}}"#,
+        )
+        .unwrap();
+
+        // Write an Express routes file
+        std::fs::write(
+            dir.join("server.js"),
+            r#"
+const express = require('express');
+const app = express();
+
+app.get('/api/users', (req, res) => { res.json([]); });
+app.post('/api/users', (req, res) => { res.json({ created: true }); });
+
+const router = express.Router();
+router.get('/health', (req, res) => { res.json({ status: 'ok' }); });
+
+app.listen(3000);
+"#,
+        )
+        .unwrap();
+
+        let analyzer = ExpressAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        assert_eq!(routes.len(), 3, "Should extract 3 routes");
+
+        let paths_methods: Vec<(&str, &str)> = routes
+            .iter()
+            .map(|r| (r.path.as_str(), r.method.as_str()))
+            .collect();
+
+        assert!(paths_methods.contains(&("/api/users", "GET")));
+        assert!(paths_methods.contains(&("/api/users", "POST")));
+        assert!(paths_methods.contains(&("/health", "GET")));
+
+        // /api/users routes should be marked as API
+        for route in &routes {
+            if route.path.starts_with("/api") {
+                assert!(route.is_api, "API routes should be marked is_api");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_express() {
+        let dir = std::env::temp_dir().join("rayo_test_express_detect");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Without express in package.json, should not detect
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"dependencies": {"koa": "2.0.0"}}"#,
+        )
+        .unwrap();
+        assert!(!ExpressAnalyzer::detect(&dir));
+
+        // With express, should detect
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"dependencies": {"express": "4.18.0"}}"#,
+        )
+        .unwrap();
+        assert!(ExpressAnalyzer::detect(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_skips_node_modules() {
+        let dir = std::env::temp_dir().join("rayo_test_express_skip_nodemod");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("node_modules/express")).unwrap();
+
+        std::fs::write(
+            dir.join("node_modules/express/index.js"),
+            "app.get('/internal', handler);",
+        )
+        .unwrap();
+
+        let files = ExpressAnalyzer::find_route_files(&dir);
+        assert!(
+            files.is_empty(),
+            "Should skip node_modules when finding route files"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -243,4 +243,147 @@ mod tests {
         assert_eq!(extract_ruby_string("'/login'"), Some("/login".into()));
         assert_eq!(extract_ruby_string("\"/users\""), Some("/users".into()));
     }
+
+    #[test]
+    fn test_strip_method_prefix() {
+        assert_eq!(strip_method_prefix("get '/foo'", "get"), Some("'/foo'"));
+        assert_eq!(strip_method_prefix("post '/bar'", "post"), Some("'/bar'"));
+        assert_eq!(strip_method_prefix("get('/baz')", "get"), Some("('/baz')"));
+        assert_eq!(strip_method_prefix("something else", "get"), None);
+    }
+
+    #[test]
+    fn test_extract_routes_from_routes_rb() {
+        let dir = std::env::temp_dir().join("rayo_test_rails_routes");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("config")).unwrap();
+
+        std::fs::write(
+            dir.join("config/routes.rb"),
+            r#"Rails.application.routes.draw do
+  root "home#index"
+  get "/login", to: "sessions#new"
+  resources :users
+end
+"#,
+        )
+        .unwrap();
+
+        let analyzer = RailsAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        let paths: Vec<&str> = routes.iter().map(|r| r.path.as_str()).collect();
+
+        // root route
+        assert!(paths.contains(&"/"), "Should have root route");
+
+        // get /login
+        assert!(paths.contains(&"/login"), "Should have /login route");
+
+        // resources :users generates CRUD routes
+        assert!(
+            paths.contains(&"/users"),
+            "Should have /users index route from resources"
+        );
+        assert!(
+            paths.contains(&"/users/new"),
+            "Should have /users/new route from resources"
+        );
+        assert!(
+            paths.contains(&"/users/:id"),
+            "Should have /users/:id route from resources"
+        );
+        assert!(
+            paths.contains(&"/users/:id/edit"),
+            "Should have /users/:id/edit route from resources"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_rails_by_gemfile() {
+        let dir = std::env::temp_dir().join("rayo_test_rails_detect_gemfile");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(
+            dir.join("Gemfile"),
+            "source 'https://rubygems.org'\ngem 'rails', '~> 7.0'\n",
+        )
+        .unwrap();
+
+        assert!(RailsAnalyzer::detect(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_rails_by_routes_rb() {
+        let dir = std::env::temp_dir().join("rayo_test_rails_detect_routes");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("config")).unwrap();
+
+        std::fs::write(
+            dir.join("config/routes.rb"),
+            "Rails.application.routes.draw do\nend\n",
+        )
+        .unwrap();
+
+        assert!(RailsAnalyzer::detect(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_skips_comments_in_routes() {
+        let dir = std::env::temp_dir().join("rayo_test_rails_comments");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("config")).unwrap();
+
+        std::fs::write(
+            dir.join("config/routes.rb"),
+            r#"Rails.application.routes.draw do
+  # get "/old-route", to: "legacy#index"
+  get "/active-route", to: "pages#show"
+end
+"#,
+        )
+        .unwrap();
+
+        let analyzer = RailsAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        let paths: Vec<&str> = routes.iter().map(|r| r.path.as_str()).collect();
+        assert!(
+            !paths.contains(&"/old-route"),
+            "Should skip commented-out routes"
+        );
+        assert!(
+            paths.contains(&"/active-route"),
+            "Should include active routes"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_map_file_to_routes_controller() {
+        let dir = std::env::temp_dir().join("rayo_test_rails_map_controller");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("app/controllers")).unwrap();
+
+        let controller = dir.join("app/controllers/users_controller.rb");
+        std::fs::write(
+            &controller,
+            "class UsersController < ApplicationController\nend\n",
+        )
+        .unwrap();
+
+        let analyzer = RailsAnalyzer;
+        let routes = analyzer.map_file_to_routes(&controller, &dir);
+        assert!(routes.contains(&"/users".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

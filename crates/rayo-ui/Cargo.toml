@@ -29,3 +29,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 mime_guess = "2"
 open = "5"
+
+[dev-dependencies]
+which = "6"
+tokio = { version = "1", features = ["full", "net"] }
+tempfile = "3"

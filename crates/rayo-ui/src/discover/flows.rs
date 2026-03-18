@@ -633,4 +633,378 @@ mod tests {
         };
         assert_eq!(generate_test_value(&name_input), "Test User");
     }
+
+    /// Helper to create an InteractiveElement with defaults.
+    fn make_element(
+        id: usize,
+        tag: &str,
+        r#type: Option<&str>,
+        name: Option<&str>,
+        text: Option<&str>,
+        href: Option<&str>,
+        placeholder: Option<&str>,
+        label: Option<&str>,
+    ) -> InteractiveElement {
+        InteractiveElement {
+            id,
+            tag: tag.into(),
+            r#type: r#type.map(|s| s.into()),
+            name: name.map(|s| s.into()),
+            label: label.map(|s| s.into()),
+            text: text.map(|s| s.into()),
+            placeholder: placeholder.map(|s| s.into()),
+            value: None,
+            options: None,
+            role: None,
+            href: href.map(|s| s.into()),
+            selector: format!("#{tag}-{id}"),
+            state: vec![],
+            bbox: None,
+        }
+    }
+
+    #[test]
+    fn test_detect_auth_flow() {
+        let page_map = PageMap {
+            url: "http://localhost:3000/login".into(),
+            title: "Login".into(),
+            interactive: vec![
+                make_element(
+                    0,
+                    "input",
+                    Some("email"),
+                    Some("email"),
+                    None,
+                    None,
+                    Some("Email"),
+                    None,
+                ),
+                make_element(
+                    1,
+                    "input",
+                    Some("password"),
+                    Some("password"),
+                    None,
+                    None,
+                    Some("Password"),
+                    None,
+                ),
+                make_element(
+                    2,
+                    "button",
+                    Some("submit"),
+                    None,
+                    Some("Sign In"),
+                    None,
+                    None,
+                    None,
+                ),
+            ],
+            headings: vec!["Login".into()],
+            text_summary: "Login page".into(),
+            total_interactive: None,
+            truncated: None,
+        };
+
+        let flows = detect_flows(&page_map, "http://localhost:3000/login");
+
+        let auth_flows: Vec<&DetectedFlow> = flows
+            .iter()
+            .filter(|f| f.flow_type == FlowType::Auth)
+            .collect();
+        assert_eq!(auth_flows.len(), 1, "Should detect exactly one Auth flow");
+
+        let auth = &auth_flows[0];
+        assert_eq!(auth.flow_type, FlowType::Auth);
+        assert!(auth.name.contains("Login Flow"));
+
+        // Should have navigate, type email, type password, click submit, assert steps
+        let actions: Vec<&str> = auth.steps.iter().map(|s| s.action.as_str()).collect();
+        assert!(actions.contains(&"navigate"));
+        assert!(actions.contains(&"type"));
+        assert!(actions.contains(&"click"));
+        assert!(actions.contains(&"assert"));
+    }
+
+    #[test]
+    fn test_detect_form_flow_without_password() {
+        let page_map = PageMap {
+            url: "http://localhost:3000/contact".into(),
+            title: "Contact Us".into(),
+            interactive: vec![
+                make_element(
+                    0,
+                    "input",
+                    Some("text"),
+                    Some("name"),
+                    None,
+                    None,
+                    Some("Your name"),
+                    None,
+                ),
+                make_element(
+                    1,
+                    "input",
+                    Some("email"),
+                    Some("email"),
+                    None,
+                    None,
+                    Some("Email"),
+                    None,
+                ),
+                make_element(
+                    2,
+                    "button",
+                    Some("submit"),
+                    None,
+                    Some("Submit"),
+                    None,
+                    None,
+                    None,
+                ),
+            ],
+            headings: vec!["Contact Us".into()],
+            text_summary: "Contact form".into(),
+            total_interactive: None,
+            truncated: None,
+        };
+
+        let flows = detect_flows(&page_map, "http://localhost:3000/contact");
+
+        let form_flows: Vec<&DetectedFlow> = flows
+            .iter()
+            .filter(|f| f.flow_type == FlowType::Form)
+            .collect();
+        assert_eq!(form_flows.len(), 1, "Should detect exactly one Form flow");
+
+        // Should NOT detect Auth flow (no password field, URL not login-related)
+        let auth_flows: Vec<&DetectedFlow> = flows
+            .iter()
+            .filter(|f| f.flow_type == FlowType::Auth)
+            .collect();
+        assert_eq!(
+            auth_flows.len(),
+            0,
+            "Should not detect Auth flow without password"
+        );
+    }
+
+    #[test]
+    fn test_detect_search_flow() {
+        let page_map = PageMap {
+            url: "http://localhost:3000/".into(),
+            title: "Home".into(),
+            interactive: vec![make_element(
+                0,
+                "input",
+                Some("search"),
+                Some("q"),
+                None,
+                None,
+                Some("Search..."),
+                None,
+            )],
+            headings: vec!["Welcome".into()],
+            text_summary: "Home page with search".into(),
+            total_interactive: None,
+            truncated: None,
+        };
+
+        let flows = detect_flows(&page_map, "http://localhost:3000/");
+
+        let search_flows: Vec<&DetectedFlow> = flows
+            .iter()
+            .filter(|f| f.flow_type == FlowType::Search)
+            .collect();
+        assert_eq!(
+            search_flows.len(),
+            1,
+            "Should detect exactly one Search flow"
+        );
+
+        let search = &search_flows[0];
+        // Should have navigate, type search query, press Enter (no submit button), assert
+        let actions: Vec<&str> = search.steps.iter().map(|s| s.action.as_str()).collect();
+        assert!(actions.contains(&"navigate"));
+        assert!(actions.contains(&"type"));
+        assert!(
+            actions.contains(&"press"),
+            "Without submit button, should press Enter"
+        );
+        assert!(actions.contains(&"assert"));
+    }
+
+    #[test]
+    fn test_detect_search_flow_by_placeholder() {
+        let page_map = PageMap {
+            url: "http://localhost:3000/".into(),
+            title: "Home".into(),
+            interactive: vec![make_element(
+                0,
+                "input",
+                Some("text"),
+                Some("query"),
+                None,
+                None,
+                Some("Search products..."),
+                None,
+            )],
+            headings: vec![],
+            text_summary: "".into(),
+            total_interactive: None,
+            truncated: None,
+        };
+
+        let flows = detect_flows(&page_map, "http://localhost:3000/");
+
+        let search_flows: Vec<&DetectedFlow> = flows
+            .iter()
+            .filter(|f| f.flow_type == FlowType::Search)
+            .collect();
+        assert_eq!(
+            search_flows.len(),
+            1,
+            "Should detect search by placeholder text"
+        );
+    }
+
+    #[test]
+    fn test_detect_navigation_flow() {
+        let page_map = PageMap {
+            url: "http://localhost:3000/".into(),
+            title: "Home".into(),
+            interactive: vec![
+                make_element(
+                    0,
+                    "a",
+                    None,
+                    None,
+                    Some("About"),
+                    Some("/about"),
+                    None,
+                    None,
+                ),
+                make_element(
+                    1,
+                    "a",
+                    None,
+                    None,
+                    Some("Contact"),
+                    Some("/contact"),
+                    None,
+                    None,
+                ),
+                make_element(2, "a", None, None, Some("Blog"), Some("/blog"), None, None),
+            ],
+            headings: vec!["Home".into()],
+            text_summary: "Home page".into(),
+            total_interactive: None,
+            truncated: None,
+        };
+
+        let flows = detect_flows(&page_map, "http://localhost:3000/");
+
+        let nav_flows: Vec<&DetectedFlow> = flows
+            .iter()
+            .filter(|f| f.flow_type == FlowType::Navigation)
+            .collect();
+        assert_eq!(
+            nav_flows.len(),
+            1,
+            "Should detect exactly one Navigation flow"
+        );
+
+        let nav = &nav_flows[0];
+        // Navigation flow should have navigate + click/assert pairs for each link
+        let click_count = nav.steps.iter().filter(|s| s.action == "click").count();
+        assert!(
+            click_count >= 2,
+            "Navigation flow should click at least 2 links"
+        );
+    }
+
+    #[test]
+    fn test_empty_page_no_flows() {
+        let page_map = PageMap {
+            url: "http://localhost:3000/empty".into(),
+            title: "Empty".into(),
+            interactive: vec![],
+            headings: vec![],
+            text_summary: "".into(),
+            total_interactive: None,
+            truncated: None,
+        };
+
+        let flows = detect_flows(&page_map, "http://localhost:3000/empty");
+        assert!(flows.is_empty(), "Empty page map should produce no flows");
+    }
+
+    #[test]
+    fn test_find_submit_button_explicit() {
+        let elements = vec![
+            make_element(
+                0,
+                "input",
+                Some("text"),
+                Some("name"),
+                None,
+                None,
+                None,
+                None,
+            ),
+            make_element(
+                1,
+                "button",
+                Some("submit"),
+                None,
+                Some("Go"),
+                None,
+                None,
+                None,
+            ),
+        ];
+
+        let submit = find_submit_button(&elements);
+        assert!(submit.is_some());
+        assert_eq!(submit.unwrap().id, 1);
+    }
+
+    #[test]
+    fn test_find_submit_button_fallback() {
+        let elements = vec![
+            make_element(
+                0,
+                "input",
+                Some("text"),
+                Some("name"),
+                None,
+                None,
+                None,
+                None,
+            ),
+            make_element(1, "button", None, None, Some("Save"), None, None, None),
+        ];
+
+        let submit = find_submit_button(&elements);
+        assert!(submit.is_some(), "Should fall back to any button");
+        assert_eq!(submit.unwrap().id, 1);
+    }
+
+    #[test]
+    fn test_generate_test_value_various_types() {
+        let tel = make_element(0, "input", Some("tel"), None, None, None, None, None);
+        assert_eq!(generate_test_value(&tel), "555-0123");
+
+        let number = make_element(1, "input", Some("number"), None, None, None, None, None);
+        assert_eq!(generate_test_value(&number), "42");
+
+        let url = make_element(2, "input", Some("url"), None, None, None, None, None);
+        assert_eq!(generate_test_value(&url), "https://example.com");
+
+        let date = make_element(3, "input", Some("date"), None, None, None, None, None);
+        assert_eq!(generate_test_value(&date), "2025-01-15");
+
+        let password = make_element(4, "input", Some("password"), None, None, None, None, None);
+        assert_eq!(generate_test_value(&password), "TestPassword123!");
+    }
 }

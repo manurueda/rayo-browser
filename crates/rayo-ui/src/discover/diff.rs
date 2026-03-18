@@ -77,11 +77,102 @@ fn detect_base_branch(project_dir: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discover::analyzers::static_html::StaticHtmlAnalyzer;
 
     #[test]
     fn test_detect_base_branch() {
         // This test depends on the actual repo structure
         let branch = detect_base_branch(Path::new("."));
         assert!(branch == "main" || branch == "master");
+    }
+
+    #[test]
+    fn test_map_files_to_routes_static_html() {
+        let dir = std::env::temp_dir().join("rayo_test_diff_map_routes");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Create HTML files in the project directory
+        std::fs::write(dir.join("index.html"), "<html></html>").unwrap();
+        std::fs::write(dir.join("about.html"), "<html></html>").unwrap();
+        std::fs::write(dir.join("contact.html"), "<html></html>").unwrap();
+
+        let analyzer = StaticHtmlAnalyzer;
+
+        // Simulate changed files: only about.html and contact.html changed
+        let changed_files = vec![dir.join("about.html"), dir.join("contact.html")];
+
+        let routes = map_files_to_routes(&changed_files, &analyzer, &dir);
+
+        assert!(
+            routes.contains(&"/about".to_string()),
+            "Should map about.html to /about"
+        );
+        assert!(
+            routes.contains(&"/contact".to_string()),
+            "Should map contact.html to /contact"
+        );
+        // index.html was NOT changed, so / should not be in the result
+        assert!(
+            !routes.contains(&"/".to_string()),
+            "Should not include routes for unchanged files"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_map_files_to_routes_deduplicates() {
+        let dir = std::env::temp_dir().join("rayo_test_diff_dedup");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(dir.join("index.html"), "<html></html>").unwrap();
+
+        let analyzer = StaticHtmlAnalyzer;
+
+        // Pass the same file twice
+        let changed_files = vec![dir.join("index.html"), dir.join("index.html")];
+
+        let routes = map_files_to_routes(&changed_files, &analyzer, &dir);
+        assert_eq!(
+            routes.len(),
+            1,
+            "Should deduplicate routes from the same file"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_map_files_to_routes_empty_input() {
+        let dir = std::env::temp_dir().join("rayo_test_diff_empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let analyzer = StaticHtmlAnalyzer;
+        let routes = map_files_to_routes(&[], &analyzer, &dir);
+        assert!(routes.is_empty(), "No files should produce no routes");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_map_files_to_routes_non_html_file() {
+        let dir = std::env::temp_dir().join("rayo_test_diff_nonhtml");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(dir.join("style.css"), "body {}").unwrap();
+
+        let analyzer = StaticHtmlAnalyzer;
+        let changed_files = vec![dir.join("style.css")];
+        let routes = map_files_to_routes(&changed_files, &analyzer, &dir);
+        assert!(
+            routes.is_empty(),
+            "Non-HTML files should not map to routes with StaticHtmlAnalyzer"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

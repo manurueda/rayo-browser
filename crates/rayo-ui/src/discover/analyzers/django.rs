@@ -217,4 +217,116 @@ mod tests {
         assert_eq!(extract_python_string("'users/'"), Some("users/".into()));
         assert_eq!(extract_python_string("\"api/v1/\""), Some("api/v1/".into()));
     }
+
+    #[test]
+    fn test_extract_python_raw_string() {
+        assert_eq!(
+            extract_python_string("r'^users/$'"),
+            Some("^users/$".into())
+        );
+    }
+
+    #[test]
+    fn test_normalize_django_regex_path() {
+        assert_eq!(normalize_django_regex_path("^users/$"), "/users");
+        assert_eq!(
+            normalize_django_regex_path("^users/(?P<id>\\d+)/$"),
+            "/users/:id"
+        );
+    }
+
+    #[test]
+    fn test_extract_routes_from_urls_py() {
+        let dir = std::env::temp_dir().join("rayo_test_django_routes");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(
+            dir.join("urls.py"),
+            r#"from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('', views.home),
+    path('login/', views.login),
+    path('api/users/', views.users),
+]
+"#,
+        )
+        .unwrap();
+
+        let analyzer = DjangoAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        let paths: Vec<&str> = routes.iter().map(|r| r.path.as_str()).collect();
+        assert!(paths.contains(&"/"), "Should have root route");
+        assert!(paths.contains(&"/login"), "Should have /login route");
+        assert!(
+            paths.contains(&"/api/users"),
+            "Should have /api/users route"
+        );
+
+        // /api/users should be marked as API
+        let api_route = routes.iter().find(|r| r.path == "/api/users").unwrap();
+        assert!(api_route.is_api);
+
+        assert_eq!(routes.len(), 3, "Should extract exactly 3 routes");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_django_by_manage_py() {
+        let dir = std::env::temp_dir().join("rayo_test_django_detect_manage");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(dir.join("manage.py"), "#!/usr/bin/env python\n").unwrap();
+
+        assert!(DjangoAnalyzer::detect(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_skips_comments_in_urls() {
+        let dir = std::env::temp_dir().join("rayo_test_django_comments");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(
+            dir.join("urls.py"),
+            r#"urlpatterns = [
+    # path('old/', views.old),
+    path('active/', views.active),
+]
+"#,
+        )
+        .unwrap();
+
+        let analyzer = DjangoAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        let paths: Vec<&str> = routes.iter().map(|r| r.path.as_str()).collect();
+        assert!(!paths.contains(&"/old"), "Should skip commented-out paths");
+        assert!(paths.contains(&"/active"), "Should include active paths");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_map_file_to_routes_views() {
+        let dir = std::env::temp_dir().join("rayo_test_django_map_views");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("myapp")).unwrap();
+
+        let views_file = dir.join("myapp/views.py");
+        std::fs::write(&views_file, "def home(request):\n    pass\n").unwrap();
+
+        let analyzer = DjangoAnalyzer;
+        let routes = analyzer.map_file_to_routes(&views_file, &dir);
+        assert!(routes.contains(&"/myapp".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

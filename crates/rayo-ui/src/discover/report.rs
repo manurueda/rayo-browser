@@ -207,4 +207,167 @@ mod tests {
     fn test_compute_health_score_empty() {
         assert_eq!(compute_health_score(&[], 0), 0);
     }
+
+    #[test]
+    fn test_health_score_zero_console_errors_is_high() {
+        let pages = vec![
+            ExploredPage {
+                url: "/".into(),
+                status: PageStatus::Ok,
+                console_errors: 0,
+                has_elements: true,
+            },
+            ExploredPage {
+                url: "/about".into(),
+                status: PageStatus::Ok,
+                console_errors: 0,
+                has_elements: true,
+            },
+            ExploredPage {
+                url: "/contact".into(),
+                status: PageStatus::Ok,
+                console_errors: 0,
+                has_elements: true,
+            },
+        ];
+        let score = compute_health_score(&pages, 3);
+        assert!(
+            score >= 90,
+            "Score with 0 console errors should be >= 90, got {score}"
+        );
+    }
+
+    #[test]
+    fn test_health_score_many_console_errors_is_low() {
+        let pages = vec![
+            ExploredPage {
+                url: "/".into(),
+                status: PageStatus::Ok,
+                console_errors: 20,
+                has_elements: true,
+            },
+            ExploredPage {
+                url: "/about".into(),
+                status: PageStatus::Ok,
+                console_errors: 15,
+                has_elements: true,
+            },
+        ];
+        let score = compute_health_score(&pages, 2);
+        // With 35 total console errors (>10), console_score = 10
+        // Other scores are 100, so weighted average = (10 + 100 + 100 + 100) * 0.25 = 77.5
+        assert!(
+            score < 80,
+            "Score with many console errors should be < 80, got {score}"
+        );
+    }
+
+    #[test]
+    fn test_health_score_few_console_errors_moderate() {
+        let pages = vec![ExploredPage {
+            url: "/".into(),
+            status: PageStatus::Ok,
+            console_errors: 2,
+            has_elements: true,
+        }];
+        let score = compute_health_score(&pages, 1);
+        // 1-3 errors = console_score 70, rest 100 -> (70+100+100+100)*0.25 = 92.5
+        assert!(
+            score >= 80 && score <= 95,
+            "Score with 2 console errors should be 80-95, got {score}"
+        );
+    }
+
+    #[test]
+    fn test_health_bar_output() {
+        let bar = health_bar(100);
+        assert!(bar.contains("Healthy"));
+        assert!(bar.contains("100%"));
+
+        let bar = health_bar(60);
+        assert!(bar.contains("Needs Attention"));
+        assert!(bar.contains("60%"));
+
+        let bar = health_bar(30);
+        assert!(bar.contains("Critical"));
+        assert!(bar.contains("30%"));
+    }
+
+    #[test]
+    fn test_generate_report_contains_sections() {
+        let result = DiscoverResult {
+            framework: "Next.js".into(),
+            routes_from_code: 5,
+            routes_explored: 3,
+            flows_detected: 2,
+            tests_generated: 4,
+            tests_passed: 3,
+            tests_failed: 1,
+            console_errors: 2,
+            health_score: 85,
+            duration_ms: 1500,
+        };
+
+        let pages = vec![
+            ExploredPage {
+                url: "/".into(),
+                status: PageStatus::Ok,
+                console_errors: 0,
+                has_elements: true,
+            },
+            ExploredPage {
+                url: "/login".into(),
+                status: PageStatus::Ok,
+                console_errors: 2,
+                has_elements: true,
+            },
+        ];
+
+        let report = generate_report(&result, &pages);
+
+        assert!(report.contains("# rayo discover report"));
+        assert!(report.contains("## Summary"));
+        assert!(report.contains("Next.js"));
+        assert!(report.contains("## Health Score"));
+        assert!(report.contains("85%"));
+        assert!(report.contains("## Pages Explored"));
+        assert!(report.contains("/login"));
+        assert!(report.contains("## Console Errors"));
+        assert!(report.contains("## Test Results"));
+    }
+
+    #[test]
+    fn test_write_report_creates_file() {
+        let dir = std::env::temp_dir().join("rayo_test_report_write");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let result = DiscoverResult {
+            framework: "Generic".into(),
+            routes_from_code: 0,
+            routes_explored: 1,
+            flows_detected: 0,
+            tests_generated: 1,
+            tests_passed: 1,
+            tests_failed: 0,
+            console_errors: 0,
+            health_score: 100,
+            duration_ms: 500,
+        };
+
+        let pages = vec![ExploredPage {
+            url: "/".into(),
+            status: PageStatus::Ok,
+            console_errors: 0,
+            has_elements: true,
+        }];
+
+        let report_path = dir.join("discover-report.md");
+        write_report(&result, &pages, &report_path).expect("Should write report");
+        assert!(report_path.exists());
+
+        let content = std::fs::read_to_string(&report_path).unwrap();
+        assert!(content.contains("rayo discover report"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -343,4 +343,148 @@ mod tests {
         assert_eq!(pages_path_to_route("users/[id].tsx"), "/users/:id");
         assert_eq!(pages_path_to_route("api/users/index.ts"), "/api/users");
     }
+
+    #[test]
+    fn test_extract_routes_app_router() {
+        let dir = std::env::temp_dir().join("rayo_test_nextjs_app_router");
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = dir.join("app");
+
+        // Create app router pages
+        std::fs::create_dir_all(app.join("login")).unwrap();
+        std::fs::create_dir_all(app.join("dashboard/settings")).unwrap();
+        std::fs::create_dir_all(app.join("api/users")).unwrap();
+
+        std::fs::write(app.join("page.tsx"), "export default function Home() {}").unwrap();
+        std::fs::write(
+            app.join("login/page.tsx"),
+            "export default function Login() {}",
+        )
+        .unwrap();
+        std::fs::write(
+            app.join("dashboard/settings/page.tsx"),
+            "export default function Settings() {}",
+        )
+        .unwrap();
+        // API route
+        std::fs::write(
+            app.join("api/users/route.ts"),
+            "export async function GET(req) { return Response.json([]); }",
+        )
+        .unwrap();
+        // Files that should be skipped (not page/route files)
+        std::fs::write(
+            app.join("layout.tsx"),
+            "export default function Layout() {}",
+        )
+        .unwrap();
+        std::fs::write(
+            app.join("not-found.tsx"),
+            "export default function NotFound() {}",
+        )
+        .unwrap();
+
+        let analyzer = NextJsAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        let paths: Vec<&str> = routes.iter().map(|r| r.path.as_str()).collect();
+        assert!(paths.contains(&"/"), "Should have root route");
+        assert!(paths.contains(&"/login"), "Should have /login route");
+        assert!(
+            paths.contains(&"/dashboard/settings"),
+            "Should have /dashboard/settings route"
+        );
+        assert!(
+            paths.contains(&"/api/users"),
+            "Should have /api/users API route"
+        );
+        // layout.tsx and not-found.tsx should not produce routes
+        assert!(
+            !paths.contains(&"/layout"),
+            "layout.tsx should not be a route"
+        );
+        assert!(
+            !paths.contains(&"/not-found"),
+            "not-found.tsx should not be a route"
+        );
+
+        // API route should be marked as API
+        let api_route = routes.iter().find(|r| r.path == "/api/users").unwrap();
+        assert!(api_route.is_api);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_extract_routes_pages_router() {
+        let dir = std::env::temp_dir().join("rayo_test_nextjs_pages_router");
+        let _ = std::fs::remove_dir_all(&dir);
+        let pages = dir.join("pages");
+
+        std::fs::create_dir_all(&pages).unwrap();
+        std::fs::write(
+            pages.join("about.tsx"),
+            "export default function About() {}",
+        )
+        .unwrap();
+        // _app.tsx should be skipped (starts with _)
+        std::fs::write(pages.join("_app.tsx"), "export default function App() {}").unwrap();
+
+        let analyzer = NextJsAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        let paths: Vec<&str> = routes.iter().map(|r| r.path.as_str()).collect();
+        assert!(paths.contains(&"/about"), "Should have /about route");
+        assert!(
+            !paths.iter().any(|p| p.contains("_app")),
+            "_app.tsx should be skipped"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_nextjs_by_package_json() {
+        let dir = std::env::temp_dir().join("rayo_test_nextjs_detect");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"dependencies": {"next": "14.0.0"}}"#,
+        )
+        .unwrap();
+
+        assert!(NextJsAnalyzer::detect(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_api_methods_from_file() {
+        let dir = std::env::temp_dir().join("rayo_test_nextjs_api_methods");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let route_file = dir.join("route.ts");
+        std::fs::write(
+            &route_file,
+            r#"
+export async function GET(request: Request) {
+    return Response.json({ users: [] });
+}
+
+export async function POST(request: Request) {
+    return Response.json({ created: true });
+}
+"#,
+        )
+        .unwrap();
+
+        let methods = detect_api_methods(&route_file);
+        assert!(methods.contains(&"GET".to_string()));
+        assert!(methods.contains(&"POST".to_string()));
+        assert_eq!(methods.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

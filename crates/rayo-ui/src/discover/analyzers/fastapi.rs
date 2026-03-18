@@ -196,4 +196,110 @@ mod tests {
         );
         assert_eq!(normalize_fastapi_path("/"), "/");
     }
+
+    #[test]
+    fn test_normalize_fastapi_path_no_leading_slash() {
+        assert_eq!(normalize_fastapi_path("users"), "/users");
+    }
+
+    #[test]
+    fn test_extract_routes_from_python_file() {
+        let dir = std::env::temp_dir().join("rayo_test_fastapi_routes");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(
+            dir.join("main.py"),
+            r#"
+from fastapi import FastAPI, APIRouter
+
+app = FastAPI()
+router = APIRouter()
+
+@app.get("/api/users")
+async def list_users():
+    return []
+
+@app.post("/api/users")
+async def create_user():
+    return {"created": True}
+
+@router.get("/health")
+async def health():
+    return {"status": "ok"}
+"#,
+        )
+        .unwrap();
+
+        let analyzer = FastApiAnalyzer;
+        let routes = analyzer.extract_routes(&dir);
+
+        assert_eq!(routes.len(), 3, "Should extract 3 routes");
+
+        let paths_methods: Vec<(&str, &str)> = routes
+            .iter()
+            .map(|r| (r.path.as_str(), r.method.as_str()))
+            .collect();
+
+        assert!(paths_methods.contains(&("/api/users", "GET")));
+        assert!(paths_methods.contains(&("/api/users", "POST")));
+        assert!(paths_methods.contains(&("/health", "GET")));
+
+        // All FastAPI routes should be marked as API
+        for route in &routes {
+            assert!(route.is_api, "All FastAPI routes should be marked is_api");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_fastapi_by_requirements() {
+        let dir = std::env::temp_dir().join("rayo_test_fastapi_detect_reqs");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(dir.join("requirements.txt"), "fastapi==0.100.0\nuvicorn\n").unwrap();
+
+        assert!(FastApiAnalyzer::detect(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_detect_fastapi_by_pyproject() {
+        let dir = std::env::temp_dir().join("rayo_test_fastapi_detect_pyproj");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        std::fs::write(
+            dir.join("pyproject.toml"),
+            "[project]\ndependencies = [\"fastapi\"]\n",
+        )
+        .unwrap();
+
+        assert!(FastApiAnalyzer::detect(&dir));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_map_file_to_routes_returns_only_matching_file() {
+        let dir = std::env::temp_dir().join("rayo_test_fastapi_map_file");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let file_a = dir.join("routes_a.py");
+        let file_b = dir.join("routes_b.py");
+
+        std::fs::write(&file_a, "@app.get(\"/users\")\nasync def users(): pass\n").unwrap();
+        std::fs::write(&file_b, "@app.get(\"/items\")\nasync def items(): pass\n").unwrap();
+
+        let analyzer = FastApiAnalyzer;
+        let routes = analyzer.map_file_to_routes(&file_a, &dir);
+        assert!(routes.contains(&"/users".to_string()));
+        assert!(!routes.contains(&"/items".to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
