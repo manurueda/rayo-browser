@@ -1,15 +1,15 @@
-# rayo-test: AI-native E2E test runner
+# rayo-ui: AI-native E2E test runner
 
 ## Why
 Momentic charges enterprise SaaS prices for AI-powered E2E testing. rayo-browser already has the fastest browser automation layer — adding a test runner on top makes rayo a complete testing platform where the AI agent IS the visual intelligence (zero additional AI API cost). The test runner orchestrates: load test definitions, execute steps via rayo-core, evaluate assertions (page_map, text, screenshot), collect results, serve them via API for the web UI.
 
 ## Solution
-New `rayo-test` crate containing the test runner engine, YAML test definition parser, assertion engine, result collector, report generator, and an axum web server for UI communication. Also provides a CLI binary (`rayo-test`) for running tests from terminal and CI.
+New `rayo-ui` crate containing the test runner engine, YAML test definition parser, assertion engine, result collector, report generator, and an axum web server for UI communication. Also provides a CLI binary (`rayo-ui`) for running tests from terminal and CI.
 
 ## Architecture
 
 ```
-  rayo-test CLI / Web UI
+  rayo-ui CLI / Web UI
        │
        ▼
   TestRunner
@@ -61,11 +61,11 @@ steps:
 - Result collector with per-step artifacts
 - JSON + HTML report generation
 - Axum web server with REST API + WebSocket
-- CLI binary: `rayo-test run`, `rayo-test list`, `rayo-test ui`
+- CLI binary: `rayo-ui run`, `rayo-ui list`, `rayo-ui ui`
 - Profiler integration
 
 ## Not in scope
-- Web UI frontend (rayo-test-ui change)
+- Web UI frontend (rayo-ui-ui change)
 - Test recording/replay (Phase 2)
 - Sharding/parallelism (Phase 2)
 - AI-powered self-healing (agent handles this)

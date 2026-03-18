@@ -143,7 +143,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Build UI (embedded in rayo-test binary)
+      - name: Build UI (embedded in rayo-ui binary)
         run: cd ui && npm ci && npm run build
       - name: Build artifacts
         run: |

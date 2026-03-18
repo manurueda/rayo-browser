@@ -6,7 +6,7 @@ members = [
     "crates/rayo-rules",
     "crates/rayo-updater",
     "crates/rayo-visual",
-    "crates/rayo-test",
+    "crates/rayo-ui",
     "crates/rayo-mcp",
     "bench",
 ]

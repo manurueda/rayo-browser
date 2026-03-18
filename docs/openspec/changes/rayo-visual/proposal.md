@@ -45,6 +45,6 @@ New `rayo-visual` crate with zero rayo dependencies — a pure image processing 
 
 ## Not in scope
 - Browser integration (that's rayo-core)
-- Test runner logic (that's rayo-test)
+- Test runner logic (that's rayo-ui)
 - Selector-based masking (requires browser — that's rayo-core-visual-ext)
 - Cloud storage (Phase 3)

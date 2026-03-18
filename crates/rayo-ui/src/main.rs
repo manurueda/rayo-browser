@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
-    name = "rayo-test",
-    about = "AI-native E2E test runner for rayo-browser"
+    name = "rayo-ui",
+    about = "AI-native E2E test runner and dashboard for rayo-browser"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("rayo_test=info".parse()?),
+                .add_directive("rayo_ui=info".parse()?),
         )
         .init();
 
@@ -87,9 +87,9 @@ async fn main() -> anyhow::Result<()> {
             html,
             abort_on_failure,
         } => {
-            let files = rayo_test::loader::load_suites(&tests_dir)?;
+            let files = rayo_ui::loader::load_suites(&tests_dir)?;
 
-            let config = rayo_test::runner::RunnerConfig {
+            let config = rayo_ui::runner::RunnerConfig {
                 baselines_dir,
                 abort_on_failure,
             };
@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
 
             for file in &suites_to_run {
                 println!("\n  Running: {}", file.suite.name);
-                let result = rayo_test::runner::run_suite(&file.suite, &config, None).await?;
+                let result = rayo_ui::runner::run_suite(&file.suite, &config, None).await?;
 
                 for step in &result.steps {
                     let icon = if step.pass {
@@ -161,14 +161,14 @@ async fn main() -> anyhow::Result<()> {
             // Write reports
             if let Some(json_path) = json {
                 for result in &all_results {
-                    rayo_test::report::write_json_report(result, &json_path)?;
+                    rayo_ui::report::write_json_report(result, &json_path)?;
                 }
                 println!("\n  JSON report: {}", json_path.display());
             }
 
             if let Some(html_path) = html {
                 for result in &all_results {
-                    let html_content = rayo_test::report::generate_html_report(result);
+                    let html_content = rayo_ui::report::generate_html_report(result);
                     std::fs::write(&html_path, html_content)?;
                 }
                 println!("  HTML report: {}", html_path.display());
@@ -179,7 +179,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Commands::List { tests_dir } => match rayo_test::loader::load_suites(&tests_dir) {
+        Commands::List { tests_dir } => match rayo_ui::loader::load_suites(&tests_dir) {
             Ok(files) => {
                 println!("\nTest suites in {}:\n", tests_dir.display());
                 for file in &files {
@@ -199,7 +199,7 @@ async fn main() -> anyhow::Result<()> {
             port,
             no_open,
         } => {
-            rayo_test::server::start_server(tests_dir, baselines_dir, port, !no_open).await?;
+            rayo_ui::server::start_server(tests_dir, baselines_dir, port, !no_open).await?;
         }
     }
 

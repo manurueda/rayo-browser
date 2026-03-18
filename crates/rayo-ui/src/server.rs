@@ -62,7 +62,7 @@ pub async fn start_server(
         .with_state(state);
 
     let url = format!("http://localhost:{port}");
-    eprintln!("\n  ⚡ rayo-test dashboard: {url}\n");
+    eprintln!("\n  ⚡ rayo-ui dashboard: {url}\n");
 
     if open_browser {
         let _ = open::that(&url);
@@ -129,7 +129,7 @@ async fn serve_ui(uri: Uri) -> impl IntoResponse {
     }
 
     // No UI files embedded
-    Html("rayo-test server running. UI assets not found — rebuild with: cd ui && npm run build")
+    Html("rayo-ui server running. UI assets not found — rebuild with: cd ui && npm run build")
         .into_response()
 }
 

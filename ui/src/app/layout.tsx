@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "rayo-test",
+  title: "rayo-ui",
   description: "AI-native E2E visual testing dashboard",
 };
 
@@ -19,7 +19,7 @@ export default function RootLayout({
             <div className="flex items-center justify-between max-w-7xl mx-auto">
               <div className="flex items-center gap-3">
                 <span className="text-xl font-bold">
-                  ⚡ rayo<span className="text-[var(--accent)]">-test</span>
+                  ⚡ rayo<span className="text-[var(--accent)]">-ui</span>
                 </span>
               </div>
               <div className="flex items-center gap-4 text-sm text-[var(--muted)]">

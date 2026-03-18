@@ -12,7 +12,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchSuites().then(setSuites).catch(() => setError("Failed to connect to rayo-test server"));
+    fetchSuites().then(setSuites).catch(() => setError("Failed to connect to rayo-ui server"));
     fetchResults().then(setResults).catch(() => {});
   }, []);
 
@@ -53,7 +53,7 @@ export default function DashboardPage() {
         <div className="rounded-lg border border-red-900 bg-red-950/20 p-4 text-red-400 text-sm">
           {error}
           <span className="block text-xs mt-1 opacity-70">
-            Make sure rayo-test server is running: rayo-test ui
+            Make sure rayo-ui server is running: rayo-ui ui
           </span>
         </div>
       )}

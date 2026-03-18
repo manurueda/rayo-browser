@@ -1,10 +1,10 @@
-# rayo-test-ui: Web UI for visual testing
+# rayo-ui-ui: Web UI for visual testing
 
 ## Why
 A web UI transforms rayo from a CLI tool into a visual testing platform. Engineers need to see test results — page maps, screenshots, diffs, timing — in a visual, interactive format. The UI also enables live test execution monitoring via WebSocket. This is what Momentic charges enterprise prices for.
 
 ## Solution
-Next.js app in `/ui` directory using shadcn/ui + magic ui + Tailwind CSS. Communicates with rayo-test's axum server via REST API and WebSocket. Served by rayo-test when `rayo-test ui` is run.
+Next.js app in `/ui` directory using shadcn/ui + magic ui + Tailwind CSS. Communicates with rayo-ui's axum server via REST API and WebSocket. Served by rayo-ui when `rayo-ui ui` is run.
 
 ## Pages
 

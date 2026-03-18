@@ -1,4 +1,4 @@
-# rayo-test: Tasks
+# rayo-ui: Tasks
 
 ## Tasks
 
@@ -11,7 +11,7 @@
 - [ ] Implement JSON report generator
 - [ ] Implement HTML report generator (self-contained, embeds screenshots)
 - [ ] Implement axum web server: REST API endpoints + WebSocket for live updates
-- [ ] Implement CLI: `rayo-test run [suite]`, `rayo-test list`, `rayo-test ui`
+- [ ] Implement CLI: `rayo-ui run [suite]`, `rayo-ui list`, `rayo-ui ui`
 - [ ] Wire profiler spans: TestSuite, TestCase, TestStep, Assertion categories
 - [ ] Integration tests: parse YAML → execute → collect results → generate report
-- [ ] Add rayo-test to workspace Cargo.toml
+- [ ] Add rayo-ui to workspace Cargo.toml

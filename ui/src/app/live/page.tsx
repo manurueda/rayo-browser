@@ -35,7 +35,7 @@ export default function LivePage() {
 
       <div className="text-xs text-[var(--muted)]">
         <p>
-          The live runner connects via WebSocket to the rayo-test server and shows
+          The live runner connects via WebSocket to the rayo-ui server and shows
           real-time step execution. Start a test run from here or via CLI.
         </p>
       </div>

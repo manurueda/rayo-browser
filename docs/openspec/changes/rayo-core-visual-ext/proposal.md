@@ -1,7 +1,7 @@
 # rayo-core visual extensions
 
 ## Why
-rayo-core currently captures screenshots (JPEG, viewport or full-page) and page maps (50 interactive elements with selectors). For visual testing, we need: configurable viewport dimensions, element bounding boxes in page maps, element-level screenshots, animation freezing, and PNG format support. These are foundational browser capabilities that rayo-test and rayo_visual MCP tool both depend on.
+rayo-core currently captures screenshots (JPEG, viewport or full-page) and page maps (50 interactive elements with selectors). For visual testing, we need: configurable viewport dimensions, element bounding boxes in page maps, element-level screenshots, animation freezing, and PNG format support. These are foundational browser capabilities that rayo-ui and rayo_visual MCP tool both depend on.
 
 ## Solution
 Extend rayo-core's existing browser.rs and page_map.rs with visual testing capabilities. No new modules — these are natural extensions of existing code.
@@ -25,5 +25,5 @@ Extend rayo-core's existing browser.rs and page_map.rs with visual testing capab
 
 ## Not in scope
 - Diff engine (rayo-visual)
-- Test runner (rayo-test)
+- Test runner (rayo-ui)
 - Mobile device emulation (Phase 2)

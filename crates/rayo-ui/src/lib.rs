@@ -1,4 +1,4 @@
-//! rayo-test: AI-native E2E test runner for rayo-browser.
+//! rayo-ui: AI-native E2E test runner and dashboard for rayo-browser.
 //!
 //! ```text
 //! ┌──────────────────────────────┐
@@ -7,7 +7,7 @@
 //! └──────────────┬───────────────┘
 //!                │
 //! ┌──────────────▼───────────────┐
-//! │ rayo-test runner             │
+//! │ rayo-ui runner               │
 //! │  loader → executor → assert  │
 //! │  → results → report          │
 //! └──────────────┬───────────────┘

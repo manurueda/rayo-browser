@@ -37,7 +37,7 @@ And the diff overlay highlights changed regions in red
 
 ### Requirement: Live runner streams execution in real-time
 
-The live runner page SHALL connect via WebSocket to the rayo-test server and display each step as it executes with real-time status updates, timing, and progress indication.
+The live runner page SHALL connect via WebSocket to the rayo-ui server and display each step as it executes with real-time status updates, timing, and progress indication.
 
 #### Scenario: Live execution of a 5-step test
 Given a test suite with 5 steps is triggered

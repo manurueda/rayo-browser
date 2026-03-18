@@ -34,16 +34,16 @@ Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-i
 
 > Install rayo-browser as my browser automation and visual testing tool: run `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh` then `claude mcp add rayo -- rayo-mcp`. Then add a browser automation section to CLAUDE.md that says to always use rayo MCP tools for all browser automation instead of Playwright or Puppeteer, prefer `rayo_observe` with `page_map` mode over screenshots, use `rayo_batch` to combine 3+ sequential actions into a single call, write E2E tests as YAML in `.rayo/tests/`, and use `rayo_visual` for visual regression testing. Tell me to restart Claude Code so the MCP server loads.
 
-That's it. One paste, Claude Code does the rest — installs both `rayo-mcp` (MCP server) and `rayo-test` (test runner + dashboard), configures everything, and tells you to restart. ⚡ rayo auto-updates in the background.
+That's it. One paste, Claude Code does the rest — installs both `rayo-mcp` (MCP server) and `rayo-ui` (test runner + dashboard), configures everything, and tells you to restart. ⚡ rayo auto-updates in the background.
 
 **Cursor / Windsurf / any MCP client:**
 
 ```bash
-# Pre-built binary (fastest — installs both rayo-mcp and rayo-test)
+# Pre-built binary (fastest — installs both rayo-mcp and rayo-ui)
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh
 
 # Or build from source
-cargo install rayo-mcp rayo-test
+cargo install rayo-mcp rayo-ui
 ```
 
 ```json
@@ -121,7 +121,7 @@ Claude Code will:
 1. Navigate to your app with `rayo_navigate`
 2. Read the page structure with `rayo_observe` (page map)
 3. Write a `.rayo/tests/checkout.test.yaml` based on what it sees
-4. Run it with `rayo-test run` to verify it passes
+4. Run it with `rayo-ui run` to verify it passes
 
 ```
 You: "add a test for the signup flow on localhost:3000"
@@ -131,7 +131,7 @@ Claude Code:
   → rayo_observe  { mode: "page_map" }
   ← sees: input[name=email], input[name=password], button "Sign Up"
   → writes .rayo/tests/signup.test.yaml
-  → runs: rayo-test run --suite "Signup Flow"
+  → runs: rayo-ui run --suite "Signup Flow"
   → "✓ 3/3 steps passed (280ms)"
 ```
 
@@ -145,7 +145,7 @@ Add this to your CLAUDE.md so Claude knows to use rayo for tests:
 - Use rayo MCP tools to explore pages before writing tests
 - Write E2E tests as YAML in `.rayo/tests/*.test.yaml`
 - Use `rayo_observe` with `page_map` to discover selectors and element IDs
-- Run tests with `rayo-test run` after writing them
+- Run tests with `rayo-ui run` after writing them
 - Use `rayo_visual` to capture and compare screenshots for visual regression
 ```
 
@@ -217,18 +217,18 @@ AI agents can also use visual testing directly via MCP — no YAML needed:
 ### CLI
 
 ```bash
-rayo-test run                      # Run all suites
-rayo-test run --suite "Login Flow" # Run a specific suite
-rayo-test run --json report.json   # JSON report
-rayo-test run --html report.html   # Self-contained HTML report
-rayo-test list                     # List available test suites
-rayo-test ui                       # Open the dashboard
+rayo-ui run                      # Run all suites
+rayo-ui run --suite "Login Flow" # Run a specific suite
+rayo-ui run --json report.json   # JSON report
+rayo-ui run --html report.html   # Self-contained HTML report
+rayo-ui list                     # List available test suites
+rayo-ui ui                       # Open the dashboard
 ```
 
 ### Dashboard
 
 ```bash
-rayo-test ui
+rayo-ui ui
 ```
 
 One command. Opens your browser to `http://localhost:4040` with the full dashboard — health stats, suite list, step-by-step results with diff reports, and a live runner with real-time WebSocket updates. Everything is embedded in the binary, no Node.js needed.
@@ -307,7 +307,7 @@ AI Agent → MCP (stdio) → rayo-mcp → rayo-core → chromiumoxide → Chrome
                         rayo-rules      │
                         rayo-updater rayo-visual
 
-rayo-test CLI/UI → rayo-core + rayo-visual → Chrome
+rayo-ui CLI/UI → rayo-core + rayo-visual → Chrome
 ```
 
 7 Rust crates:
@@ -319,7 +319,7 @@ rayo-test CLI/UI → rayo-core + rayo-visual → Chrome
 | `rayo-visual` | Image diff engine (YIQ, SSIM, clustering, baselines) | None |
 | `rayo-core` | Browser automation (page maps, batch, cache, tabs, network) | profiler, visual |
 | `rayo-rules` | Speed rules engine | None |
-| `rayo-test` | E2E test runner (YAML, assertions, reports, web server) | core, visual, profiler |
+| `rayo-ui` | E2E test runner (YAML, assertions, reports, web server) | core, visual, profiler |
 | `rayo-mcp` | MCP server binary (8 tools) | core, rules, updater, profiler |
 
 ## 🧪 Reproduce it
@@ -339,8 +339,8 @@ cargo build --workspace          # Build all
 cargo test --workspace           # Test (needs Chrome)
 cargo bench                      # Benchmark
 cargo run --bin rayo-mcp         # Start MCP server
-cargo run --bin rayo-test -- run # Run E2E test suites
-cargo run --bin rayo-test -- ui  # Open dashboard (embedded UI)
+cargo run --bin rayo-ui -- run # Run E2E test suites
+cargo run --bin rayo-ui -- ui  # Open dashboard (embedded UI)
 cargo clippy --workspace         # Lint
 cargo fmt --check --all          # Check formatting
 ```

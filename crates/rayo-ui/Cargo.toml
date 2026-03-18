@@ -1,13 +1,13 @@
 [package]
-name = "rayo-test"
+name = "rayo-ui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "AI-native E2E test runner for rayo-browser"
+description = "AI-native E2E test runner and dashboard for rayo-browser"
 
 [[bin]]
-name = "rayo-test"
+name = "rayo-ui"
 path = "src/main.rs"
 
 [dependencies]

@@ -11,7 +11,7 @@ AI Agent → MCP (stdio) → rayo-mcp → rayo-core → chromiumoxide → Chrome
                         rayo-rules      │
                         rayo-updater rayo-visual
 
-rayo-test CLI/UI → rayo-core + rayo-visual → Chrome
+rayo-ui CLI/UI → rayo-core + rayo-visual → Chrome
 ```
 
 7 crates:
@@ -20,7 +20,7 @@ rayo-test CLI/UI → rayo-core + rayo-visual → Chrome
 - `rayo-visual` — image diff engine: YIQ pixel diff, SSIM, clustering, baselines (no deps on other rayo crates)
 - `rayo-core` — browser intelligence (page maps, batch, cache, waits, tabs, network, visual extensions)
 - `rayo-rules` — speed rules engine
-- `rayo-test` — E2E test runner: YAML tests, assertions, reports, web server
+- `rayo-ui` — E2E test runner: YAML tests, assertions, reports, web server
 - `rayo-mcp` — MCP server binary (7 tools)
 
 ## Commands
@@ -30,8 +30,8 @@ cargo build --workspace          # Build all
 cargo test --workspace           # Run all tests (needs Chrome)
 cargo bench                      # Run criterion benchmarks
 cargo run --bin rayo-mcp         # Start MCP server
-cargo run --bin rayo-test -- run # Run E2E test suites
-cargo run --bin rayo-test -- ui  # Start test runner web UI
+cargo run --bin rayo-ui -- run # Run E2E test suites
+cargo run --bin rayo-ui -- ui  # Start test runner web UI
 cargo clippy --workspace         # Lint
 cargo fmt --check --all          # Check formatting
 ```
@@ -88,7 +88,7 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - Disable auto-update: RAYO_NO_UPDATE=1
 - Release pipeline: cargo-dist builds platform binaries on git tag push
 
-## Visual testing (rayo-test)
+## Visual testing (rayo-ui)
 - Test definitions in `.rayo/tests/*.test.yaml`
 - Baselines stored in `.rayo/baselines/` as PNG + metadata JSON
 - rayo-visual is a pure image crate — zero rayo deps, publishable independently
@@ -97,4 +97,4 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - Animation freeze via CSS injection before screenshot capture
 - PNG for visual testing, JPEG for regular screenshots
 - Viewport configurable via ViewportConfig (default 1280x720)
-- rayo-test web server: REST API + WebSocket for live test updates
+- rayo-ui web server: REST API + WebSocket for live test updates

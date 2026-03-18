@@ -47,7 +47,7 @@
 - Version telemetry (opt-in, anonymous) — see fleet version distribution for rollout confidence
 - Extract rayo-updater as a generic MCP tool auto-updater crate on crates.io
 
-## P1: Visual Testing Platform (rayo-test)
+## P1: Visual Testing Platform (rayo-ui)
 
 ### rayo-visual crate — Rust-native image diff engine
 - SIMD-accelerated pixel comparison (YIQ color space + anti-aliasing detection)
@@ -61,9 +61,9 @@
 - Blank screenshot detection — hash-based detection of all-white/all-black captures
 - Zero rayo deps — publishable independently on crates.io
 - Criterion benchmarks for diff at various image sizes
-- **Effort: M | Priority: P1 | Blocks: screenshot assertions in rayo-test**
+- **Effort: M | Priority: P1 | Blocks: screenshot assertions in rayo-ui**
 
-### rayo-test crate — Test runner engine
+### rayo-ui crate — Test runner engine
 - YAML test definition parser (`.rayo/tests/*.test.yaml`)
 - Test format: name, viewport config, setup steps, test steps with assertions
 - Step executor: navigate, click, type, select, scroll, hover, press, wait, batch
@@ -90,7 +90,7 @@
 - CSP violation detection — warn if style injection is blocked
 - PNG screenshot format option (lossless, for baseline comparison)
 - Cap screenshot dimensions (configurable max, default 16384x16384)
-- **Effort: M | Priority: P1 | Blocks: rayo-test**
+- **Effort: M | Priority: P1 | Blocks: rayo-ui**
 
 ### Web UI — Next.js + shadcn/ui + magic ui
 - Next.js app in `/ui` directory of monorepo
@@ -102,7 +102,7 @@
 - Settings panel: viewport config, diff thresholds, baseline management, CI config
 - shadcn/ui components + magic ui animations + Tailwind CSS
 - Responsive layout (desktop-first, usable on tablet)
-- **Effort: L | Priority: P1 | Depends on: rayo-test server API**
+- **Effort: L | Priority: P1 | Depends on: rayo-ui server API**
 
 ### rayo_visual MCP tool
 - New MCP tool exposing visual testing to AI agents
