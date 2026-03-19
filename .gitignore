@@ -11,3 +11,4 @@ node_modules/
 
 # Discovery reports
 .rayo/discover-report.md
+.gstack/

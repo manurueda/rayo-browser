@@ -110,3 +110,11 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - Diff-aware mode: `--diff` flag scopes discovery to changed routes on current branch
 - Flow detection: forms, auth, CRUD, navigation, search — multi-step test sequences
 - Discovery report with health score written to .rayo/discover-report.md
+
+## Browser automation
+
+- Always use rayo MCP tools (`rayo_*`) for all browser automation — never Playwright or Puppeteer
+- Prefer `rayo_observe` with `page_map` mode over screenshots for page understanding
+- Use `rayo_batch` to combine 3+ sequential actions into a single call
+- Write E2E tests as YAML in `.rayo/tests/`
+- Use `rayo_visual` for visual regression testing
