@@ -1,0 +1,98 @@
+<div class="space-y-4">
+  {# Header #}
+  <div class="flex items-center justify-between">
+    <h3 class="font-semibold text-sm truncate" title="{{ node.url }}">
+      {{ node.title }}
+    </h3>
+    <button onclick="document.getElementById('sidebar').classList.add('hidden')"
+      class="text-gray-400 hover:text-gray-200 text-lg leading-none">&times;</button>
+  </div>
+
+  {# Page type badge #}
+  <div class="flex items-center gap-2">
+    <span class="px-2 py-0.5 rounded text-xs font-medium text-white"
+      style="background: {{ node.page_type.color() }}">
+      {{ node.page_type }}
+    </span>
+    {% if node.is_divergence %}
+    <span class="px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
+      Divergence
+    </span>
+    {% endif %}
+    <span class="text-xs text-gray-500">depth {{ node.depth }}</span>
+  </div>
+
+  {# URL #}
+  <div class="text-xs">
+    <span class="text-gray-500">URL:</span>
+    <a href="{{ node.url }}" target="_blank" rel="noopener"
+      class="text-rayo-400 hover:underline break-all">{{ node.url }}</a>
+  </div>
+
+  {# Personas #}
+  <div>
+    <span class="text-xs text-gray-500 block mb-1">Accessible by:</span>
+    <div class="flex flex-wrap gap-1">
+      {% for persona_name in &node.personas %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-gray-700">
+          <span class="w-2 h-2 rounded-full bg-gray-500"></span>
+          {{ persona_name }}
+        </span>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# Headings #}
+  {% if !node.headings.is_empty() %}
+  <div>
+    <span class="text-xs text-gray-500 block mb-1">Headings:</span>
+    <ul class="text-xs space-y-0.5">
+      {% for h in &node.headings %}
+      <li class="text-gray-300">{{ h }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {# Interactive elements #}
+  <div class="text-xs text-gray-500">
+    {{ node.interactive_count }} interactive element(s)
+  </div>
+
+  {# Outgoing edges #}
+  {% if !outgoing_edges.is_empty() %}
+  <div>
+    <span class="text-xs text-gray-500 block mb-1">Outgoing ({{ outgoing_edges.len() }}):</span>
+    <div class="space-y-1">
+      {% for edge in &outgoing_edges %}
+      <div class="text-xs p-2 bg-gray-800 rounded flex items-center justify-between gap-2">
+        <span class="text-gray-300 truncate">{{ edge.label }}</span>
+        <div class="flex gap-0.5 flex-shrink-0">
+          {% for p in &edge.personas %}
+            <span class="w-2 h-2 rounded-full bg-rayo-400" title="{{ p }}"></span>
+          {% endfor %}
+        </div>
+        {% if edge.target_changed %}
+        <span class="text-amber-400 text-[10px]" title="Different destination per persona">&#9888;</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Incoming edges #}
+  {% if !incoming_edges.is_empty() %}
+  <div>
+    <span class="text-xs text-gray-500 block mb-1">Incoming ({{ incoming_edges.len() }}):</span>
+    <div class="space-y-1">
+      {% for edge in &incoming_edges %}
+      <div class="text-xs p-2 bg-gray-800 rounded">
+        <span class="text-gray-400">&larr;</span>
+        <span class="text-gray-300">{{ edge.label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>

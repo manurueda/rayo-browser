@@ -1,5 +1,6 @@
 //! Axum web server — askama-rendered dashboard + JSON API, single binary, single port.
 
+use crate::crawl;
 use crate::loader;
 use crate::result::SuiteResult;
 use crate::runner::{self, RunnerConfig, TestEvent};
@@ -11,13 +12,14 @@ use askama::Template;
 use axum::{
     Router,
     extract::{
-        State,
+        Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Json, Response},
     routing::{get, post},
 };
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, broadcast};
@@ -29,6 +31,9 @@ use tower_http::cors::CorsLayer;
 
 const HTMX_JS: &str = include_str!("../static/htmx.min.js");
 const HTMX_WS_JS: &str = include_str!("../static/htmx-ws.js");
+const CYTOSCAPE_JS: &str = include_str!("../static/cytoscape.min.js");
+const DAGRE_JS: &str = include_str!("../static/dagre.min.js");
+const CYTOSCAPE_DAGRE_JS: &str = include_str!("../static/cytoscape-dagre.js");
 
 // ---------------------------------------------------------------------------
 // App state
@@ -40,6 +45,10 @@ struct AppState {
     results: Mutex<Vec<SuiteResult>>,
     event_tx: broadcast::Sender<TestEvent>,
     discover_status: RwLock<DiscoverStatus>,
+    flow_graph: RwLock<Option<crawl::graph::FlowGraph>>,
+    crawl_status: RwLock<crawl::CrawlStatus>,
+    flows_dir: PathBuf,
+    personas_dir: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -76,12 +85,22 @@ pub async fn start_server(
         }
     };
 
+    let flows_dir = tests_dir.parent().unwrap_or(&tests_dir).join("flows");
+    let personas_dir = tests_dir.parent().unwrap_or(&tests_dir).join("personas");
+
+    // Load persisted flow graph if available
+    let flow_graph = crawl::load_graph(&flows_dir);
+
     let state = Arc::new(AppState {
         tests_dir: tests_dir.clone(),
         baselines_dir: baselines_dir.clone(),
         results: Mutex::new(Vec::new()),
         event_tx: event_tx.clone(),
         discover_status: RwLock::new(discover_status),
+        flow_graph: RwLock::new(flow_graph),
+        crawl_status: RwLock::new(crawl::CrawlStatus::Idle),
+        flows_dir,
+        personas_dir,
     });
 
     // Auto-discover if no tests and Chrome is available
@@ -97,23 +116,32 @@ pub async fn start_server(
         .route("/", get(page_dashboard))
         .route("/suites", get(page_suites))
         .route("/suites/{name}", get(page_suite_detail))
+        .route("/flows", get(page_flows))
         .route("/live", get(page_live))
         // Fragment routes (HTML partials for htmx)
         .route("/frag/stats", get(frag_stats))
         .route("/frag/results", get(frag_results))
         .route("/frag/suite-list", get(frag_suite_list))
         .route("/frag/available-suites", get(frag_available_suites))
-        // JSON API routes (unchanged)
+        .route("/frag/flow-sidebar", get(frag_flow_sidebar))
+        // JSON API routes
         .route("/api/suites", get(list_suites))
         .route("/api/results", get(list_results))
         .route("/api/run", post(run_all))
         .route("/api/run/{name}", post(run_named))
         .route("/api/discover/status", get(api_discover_status))
+        .route("/api/flows", get(api_flow_graph))
+        .route("/api/crawl", post(api_start_crawl))
+        .route("/api/crawl/status", get(api_crawl_status))
+        .route("/api/flows/generate-tests", post(api_generate_tests))
         // WebSocket
         .route("/ws/live", get(ws_handler))
         // Static assets
         .route("/static/htmx.min.js", get(serve_htmx))
         .route("/static/htmx-ws.js", get(serve_htmx_ws))
+        .route("/static/cytoscape.min.js", get(serve_cytoscape))
+        .route("/static/dagre.min.js", get(serve_dagre))
+        .route("/static/cytoscape-dagre.js", get(serve_cytoscape_dagre))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -432,6 +460,168 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
 }
 
 // ---------------------------------------------------------------------------
+// Flow graph page + API handlers
+// ---------------------------------------------------------------------------
+
+async fn page_flows(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let graph = state.flow_graph.read().await;
+    let crawl_status = state.crawl_status.read().await;
+    let is_crawling = matches!(*crawl_status, crawl::CrawlStatus::Running { .. });
+    HtmlTemplate(FlowsTemplate::from_graph(&graph, is_crawling))
+}
+
+#[derive(Deserialize)]
+struct FlowSidebarQuery {
+    node: String,
+}
+
+async fn frag_flow_sidebar(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<FlowSidebarQuery>,
+) -> Response {
+    let graph = state.flow_graph.read().await;
+    if let Some(ref graph) = *graph
+        && let Some(node) = graph.node(&query.node)
+    {
+        let outgoing = graph.outgoing_edges(&query.node);
+        let incoming = graph.incoming_edges(&query.node);
+        return HtmlTemplate(FlowSidebarFragment {
+            node: node.clone(),
+            outgoing_edges: outgoing.into_iter().cloned().collect(),
+            incoming_edges: incoming.into_iter().cloned().collect(),
+            graph_personas: graph.personas.clone(),
+        })
+        .into_response();
+    }
+    (StatusCode::NOT_FOUND, Html("Node not found".to_string())).into_response()
+}
+
+async fn api_flow_graph(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let graph = state.flow_graph.read().await;
+    match &*graph {
+        Some(g) => Json(serde_json::json!({
+            "graph": g,
+            "elements": g.to_cytoscape_elements(),
+        })),
+        None => Json(serde_json::json!({"graph": null})),
+    }
+}
+
+#[derive(Deserialize)]
+struct CrawlParams {
+    url: Option<String>,
+    max_depth: Option<usize>,
+    max_pages: Option<usize>,
+}
+
+async fn api_start_crawl(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(params): Json<CrawlParams>,
+) -> Response {
+    // Check if already crawling
+    {
+        let status = state.crawl_status.read().await;
+        if matches!(*status, crawl::CrawlStatus::Running { .. }) {
+            return error_response(&headers, "Crawl already in progress");
+        }
+    }
+
+    let url = params.url.unwrap_or_else(|| {
+        // Try to detect target URL
+        "http://localhost:3000".to_string()
+    });
+
+    let config = crawl::CrawlConfig {
+        url: url.clone(),
+        personas_dir: state.personas_dir.clone(),
+        output_dir: state.flows_dir.clone(),
+        max_depth: params.max_depth.unwrap_or(5),
+        max_pages: params.max_pages.unwrap_or(100),
+        delay_ms: 100,
+    };
+
+    *state.crawl_status.write().await = crawl::CrawlStatus::Running {
+        persona: "Starting...".to_string(),
+        pages_crawled: 0,
+    };
+
+    let crawl_state = state.clone();
+    tokio::spawn(async move {
+        match crawl::crawl(config).await {
+            Ok(result) => {
+                *crawl_state.flow_graph.write().await = Some(result.graph.clone());
+                *crawl_state.crawl_status.write().await = crawl::CrawlStatus::Complete {
+                    total_nodes: result.graph.stats.total_nodes,
+                    total_edges: result.graph.stats.total_edges,
+                };
+            }
+            Err(e) => {
+                *crawl_state.crawl_status.write().await = crawl::CrawlStatus::Failed {
+                    error: e.to_string(),
+                };
+            }
+        }
+    });
+
+    if is_htmx(&headers) {
+        Html(r#"<div class="text-sm text-rayo-400">Crawl started... <span class="htmx-indicator">&#8987;</span></div>"#.to_string()).into_response()
+    } else {
+        Json(serde_json::json!({"status": "started"})).into_response()
+    }
+}
+
+async fn api_crawl_status(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let status = state.crawl_status.read().await;
+    let json = match &*status {
+        crawl::CrawlStatus::Idle => serde_json::json!({"status": "idle"}),
+        crawl::CrawlStatus::Running {
+            persona,
+            pages_crawled,
+        } => serde_json::json!({
+            "status": "running",
+            "persona": persona,
+            "pages_crawled": pages_crawled,
+        }),
+        crawl::CrawlStatus::Complete {
+            total_nodes,
+            total_edges,
+        } => serde_json::json!({
+            "status": "complete",
+            "total_nodes": total_nodes,
+            "total_edges": total_edges,
+        }),
+        crawl::CrawlStatus::Failed { error } => {
+            serde_json::json!({"status": "failed", "error": error})
+        }
+    };
+    Json(json)
+}
+
+async fn api_generate_tests(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let graph = state.flow_graph.read().await;
+    match &*graph {
+        Some(g) => {
+            let suites = crawl::generate::generate_from_graph(g);
+            match crawl::generate::write_flow_tests(&suites, &state.tests_dir, false) {
+                Ok(written) => {
+                    if is_htmx(&headers) {
+                        Html(format!(
+                            r#"<div class="text-sm text-green-500">Generated {written} test file(s)</div>"#
+                        ))
+                        .into_response()
+                    } else {
+                        Json(serde_json::json!({"tests_written": written})).into_response()
+                    }
+                }
+                Err(e) => error_response(&headers, &e.to_string()),
+            }
+        }
+        None => error_response(&headers, "No flow graph available. Run a crawl first."),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Static asset handlers
 // ---------------------------------------------------------------------------
 
@@ -452,6 +642,36 @@ async fn serve_htmx_ws() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=31536000"),
         ],
         HTMX_WS_JS,
+    )
+}
+
+async fn serve_cytoscape() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript"),
+            (header::CACHE_CONTROL, "public, max-age=31536000"),
+        ],
+        CYTOSCAPE_JS,
+    )
+}
+
+async fn serve_dagre() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript"),
+            (header::CACHE_CONTROL, "public, max-age=31536000"),
+        ],
+        DAGRE_JS,
+    )
+}
+
+async fn serve_cytoscape_dagre() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript"),
+            (header::CACHE_CONTROL, "public, max-age=31536000"),
+        ],
+        CYTOSCAPE_DAGRE_JS,
     )
 }
 

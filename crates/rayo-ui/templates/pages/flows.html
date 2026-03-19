@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}Flows - rayo-ui{% endblock %}
+{% block nav_flows %}text-rayo-500 font-medium{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h1 class="text-xl font-semibold">User Flow Graph</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      {% if divergence_count > 0 %}
+        {{ stats_summary|safe }}
+      {% else %}
+        {{ stats_summary }}
+      {% endif %}
+    </p>
+  </div>
+  <div class="flex gap-2">
+    {% if has_graph %}
+    <button id="btn-generate"
+      hx-post="/api/flows/generate-tests" hx-target="#crawl-feedback" hx-swap="innerHTML"
+      class="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors">
+      Generate Tests
+    </button>
+    {% endif %}
+    <button id="btn-crawl" onclick="startCrawl()"
+      class="px-4 py-2 bg-rayo-500 hover:bg-rayo-600 text-white rounded-lg text-sm font-medium transition-colors {% if is_crawling %}opacity-50 cursor-not-allowed{% endif %}"
+      {% if is_crawling %}disabled{% endif %}>
+      {% if is_crawling %}Crawling...{% else %}Start Crawl{% endif %}
+    </button>
+  </div>
+</div>
+
+<div id="crawl-feedback" class="mb-4"></div>
+
+{# Persona legend + filter #}
+{% if !personas.is_empty() %}
+<div class="flex items-center gap-4 mb-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800">
+  <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Personas</span>
+  {% for p in personas %}
+  <label class="flex items-center gap-1.5 cursor-pointer">
+    <input type="checkbox" checked onchange="togglePersona('{{ p.name }}', this.checked)"
+      class="w-3 h-3 rounded accent-current" style="accent-color: {{ p.color }}">
+    <span class="w-2.5 h-2.5 rounded-full" style="background: {{ p.color }}"></span>
+    <span class="text-sm">{{ p.name }}</span>
+  </label>
+  {% endfor %}
+  <span class="ml-auto text-xs text-gray-400">
+    <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span> = divergence point
+  </span>
+</div>
+{% endif %}
+
+{# Graph + sidebar layout #}
+<div class="flex gap-4" style="height: calc(100vh - 260px); min-height: 400px;">
+  {# Graph container #}
+  <div id="cy-container" class="flex-1 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 relative">
+    {% if !has_graph %}
+    <div class="absolute inset-0 flex items-center justify-center text-gray-400">
+      <div class="text-center">
+        <div class="text-4xl mb-2">&#127760;</div>
+        <p class="text-lg font-medium">No flow graph yet</p>
+        <p class="text-sm mt-1">Click &ldquo;Start Crawl&rdquo; to map your app&rsquo;s user flows</p>
+      </div>
+    </div>
+    {% endif %}
+    <div id="cy" class="w-full h-full"></div>
+  </div>
+
+  {# Sidebar (hidden until node clicked) #}
+  <div id="sidebar" class="hidden w-80 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 overflow-y-auto">
+    <div id="sidebar-content" class="p-4">
+      <p class="text-gray-400 text-sm">Click a node to see details</p>
+    </div>
+  </div>
+</div>
+
+{# Page type legend #}
+<div class="mt-4 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+  <span class="font-medium uppercase tracking-wider">Page Types</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background: #3b82f6"></span> Landing</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background: #f59e0b"></span> Auth</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background: #ef4444"></span> Paywall</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background: #22c55e"></span> Dashboard</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background: #8b5cf6"></span> Settings</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background: #6b7280"></span> Content</span>
+  <span class="flex items-center gap-1"><span class="w-3 h-3 rounded" style="background: #f43f5e"></span> Error</span>
+</div>
+
+<script src="/static/cytoscape.min.js"></script>
+<script src="/static/dagre.min.js"></script>
+<script src="/static/cytoscape-dagre.js"></script>
+<script>
+(function() {
+  if (typeof cytoscape !== 'undefined' && typeof cytoscapeDagre !== 'undefined') {
+    cytoscape.use(cytoscapeDagre);
+  }
+
+  var cy = null;
+  var activePersonas = new Set();
+
+  var typeColors = {
+    landing: '#3b82f6', auth: '#f59e0b', paywall: '#ef4444',
+    dashboard: '#22c55e', settings: '#8b5cf6', content: '#6b7280',
+    error: '#f43f5e', external: '#94a3b8'
+  };
+
+  var personaColors = {};
+  {% for p in personas %}
+  personaColors['{{ p.name }}'] = '{{ p.color }}';
+  activePersonas.add('{{ p.name }}');
+  {% endfor %}
+
+  var elements = {{ cytoscape_elements_json|safe }};
+
+  if (elements.length > 0) {
+    cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements: elements,
+      layout: {
+        name: 'dagre',
+        rankDir: 'TB',
+        nodeSep: 60,
+        rankSep: 100,
+        edgeSep: 30,
+        padding: 30
+      },
+      style: [
+        {
+          selector: 'node',
+          style: {
+            'label': 'data(label)',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'font-size': '11px',
+            'font-weight': '500',
+            'color': '#fff',
+            'text-wrap': 'ellipsis',
+            'text-max-width': '120px',
+            'width': 140,
+            'height': 50,
+            'shape': 'round-rectangle',
+            'background-color': function(ele) {
+              return typeColors[ele.data('pageType')] || '#6b7280';
+            },
+            'border-width': 2,
+            'border-color': function(ele) {
+              return typeColors[ele.data('pageType')] || '#6b7280';
+            },
+            'border-style': function(ele) {
+              return ele.data('isDivergence') ? 'dashed' : 'solid';
+            },
+            'text-outline-width': 1,
+            'text-outline-color': function(ele) {
+              return typeColors[ele.data('pageType')] || '#6b7280';
+            },
+            'cursor': 'pointer'
+          }
+        },
+        {
+          selector: 'node[?isDivergence]',
+          style: {
+            'border-width': 3,
+            'border-color': '#f59e0b',
+            'border-style': 'dashed'
+          }
+        },
+        {
+          selector: 'edge',
+          style: {
+            'label': 'data(label)',
+            'font-size': '9px',
+            'color': '#9ca3af',
+            'text-rotation': 'autorotate',
+            'text-margin-y': -8,
+            'width': 2,
+            'line-color': '#4b5563',
+            'target-arrow-color': '#4b5563',
+            'target-arrow-shape': 'triangle',
+            'arrow-scale': 0.8,
+            'curve-style': 'bezier',
+            'text-background-color': '#111827',
+            'text-background-opacity': 0.8,
+            'text-background-padding': '2px',
+            'text-background-shape': 'roundrectangle'
+          }
+        },
+        {
+          selector: 'edge[?targetChanged]',
+          style: {
+            'line-color': '#f59e0b',
+            'target-arrow-color': '#f59e0b',
+            'line-style': 'dashed',
+            'width': 2.5
+          }
+        },
+        {
+          selector: 'node:selected',
+          style: {
+            'border-width': 3,
+            'border-color': '#60a5fa',
+            'overlay-color': '#60a5fa',
+            'overlay-opacity': 0.15
+          }
+        },
+        {
+          selector: '.hidden-persona',
+          style: { 'opacity': 0.1 }
+        }
+      ],
+      minZoom: 0.2,
+      maxZoom: 3,
+      wheelSensitivity: 0.3
+    });
+
+    cy.on('tap', 'node', function(evt) {
+      var nodeId = evt.target.id();
+      document.getElementById('sidebar').classList.remove('hidden');
+      htmx.ajax('GET', '/frag/flow-sidebar?node=' + encodeURIComponent(nodeId), {
+        target: '#sidebar-content',
+        swap: 'innerHTML'
+      });
+    });
+
+    cy.on('tap', function(evt) {
+      if (evt.target === cy) {
+        document.getElementById('sidebar').classList.add('hidden');
+      }
+    });
+
+    cy.on('mouseover', 'edge', function(evt) {
+      evt.target.style('width', 4);
+    });
+    cy.on('mouseout', 'edge', function(evt) {
+      evt.target.style('width', evt.target.data('targetChanged') ? 2.5 : 2);
+    });
+  }
+
+  window.togglePersona = function(name, visible) {
+    if (visible) { activePersonas.add(name); } else { activePersonas.delete(name); }
+    applyPersonaFilter();
+  };
+
+  function applyPersonaFilter() {
+    if (!cy) return;
+    cy.elements().forEach(function(ele) {
+      var personas = ele.data('personas') || [];
+      var visible = personas.some(function(p) { return activePersonas.has(p); });
+      if (visible || personas.length === 0) {
+        ele.removeClass('hidden-persona');
+      } else {
+        ele.addClass('hidden-persona');
+      }
+    });
+  }
+
+  window.startCrawl = function() {
+    var urlInput = prompt('Enter the target URL to crawl:', 'http://localhost:3000');
+    if (!urlInput) return;
+    var btn = document.getElementById('btn-crawl');
+    btn.disabled = true;
+    btn.textContent = 'Crawling...';
+    btn.classList.add('opacity-50', 'cursor-not-allowed');
+    fetch('/api/crawl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: urlInput })
+    }).then(function() { pollCrawlStatus(); });
+  };
+
+  function pollCrawlStatus() {
+    fetch('/api/crawl/status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.status === 'running') {
+          document.getElementById('crawl-feedback').innerHTML =
+            '<div class="text-sm text-rayo-400 animate-pulse">Crawling: ' +
+            (data.persona || '') + ' (' + (data.pages_crawled || 0) + ' pages)...</div>';
+          setTimeout(pollCrawlStatus, 2000);
+        } else if (data.status === 'complete') {
+          document.getElementById('crawl-feedback').innerHTML =
+            '<div class="text-sm text-green-500">Crawl complete: ' +
+            data.total_nodes + ' pages, ' + data.total_edges + ' transitions. Reloading...</div>';
+          setTimeout(function() { window.location.reload(); }, 1500);
+        } else if (data.status === 'failed') {
+          document.getElementById('crawl-feedback').innerHTML =
+            '<div class="text-sm text-red-500">Crawl failed: ' + data.error + '</div>';
+          var btn = document.getElementById('btn-crawl');
+          btn.disabled = false;
+          btn.textContent = 'Start Crawl';
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+      });
+  }
+
+  {% if is_crawling %}
+  pollCrawlStatus();
+  {% endif %}
+})();
+</script>
+{% endblock %}

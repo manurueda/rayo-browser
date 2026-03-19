@@ -18,6 +18,7 @@
 //! └─────────────────────────────┘
 //! ```
 
+pub mod crawl;
 pub mod discover;
 pub mod error;
 pub mod loader;
@@ -100,6 +101,40 @@ enum Commands {
         /// Don't open browser automatically
         #[arg(long)]
         no_open: bool,
+    },
+
+    /// Crawl app flows for all user personas
+    Crawl {
+        /// Target URL (e.g., http://localhost:3000)
+        url: String,
+
+        /// Directory containing persona YAML files
+        #[arg(long, default_value = ".rayo/personas")]
+        personas_dir: PathBuf,
+
+        /// Output directory for flow graph
+        #[arg(long, default_value = ".rayo/flows")]
+        output_dir: PathBuf,
+
+        /// Maximum BFS depth
+        #[arg(long, default_value = "5")]
+        max_depth: usize,
+
+        /// Maximum pages per persona
+        #[arg(long, default_value = "100")]
+        max_pages: usize,
+
+        /// Delay between navigations (ms)
+        #[arg(long, default_value = "100")]
+        delay_ms: u64,
+
+        /// Generate test suites from the flow graph
+        #[arg(long)]
+        generate_tests: bool,
+
+        /// Directory for generated tests
+        #[arg(short, long, default_value = ".rayo/tests")]
+        tests_dir: PathBuf,
     },
 
     /// Auto-discover user flows and generate test files
@@ -238,6 +273,49 @@ pub async fn run() -> anyhow::Result<()> {
             no_open,
         } => {
             crate::server::start_server(tests_dir, baselines_dir, port, !no_open).await?;
+        }
+
+        Commands::Crawl {
+            url,
+            personas_dir,
+            output_dir,
+            max_depth,
+            max_pages,
+            delay_ms,
+            generate_tests,
+            tests_dir,
+        } => {
+            let config = crate::crawl::CrawlConfig {
+                url,
+                personas_dir,
+                output_dir: output_dir.clone(),
+                max_depth,
+                max_pages,
+                delay_ms,
+            };
+
+            println!("\n  rayo-ui crawl");
+            println!("  =============");
+
+            let result = crate::crawl::crawl(config).await?;
+
+            println!("\n  Results");
+            println!("  -------");
+            println!("  Personas:           {}", result.personas_used);
+            println!("  Pages discovered:   {}", result.total_pages);
+            println!("  Edges:              {}", result.graph.stats.total_edges);
+            println!(
+                "  Divergence points:  {}",
+                result.graph.stats.divergence_points
+            );
+            println!("  Duration:           {}ms", result.duration_ms);
+
+            if generate_tests {
+                println!("\n  Generating test suites...");
+                let suites = crate::crawl::generate::generate_from_graph(&result.graph);
+                let written = crate::crawl::generate::write_flow_tests(&suites, &tests_dir, false)?;
+                println!("  Wrote {written} test file(s) to {}", tests_dir.display());
+            }
         }
 
         Commands::Discover {

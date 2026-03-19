@@ -61,6 +61,53 @@ pub struct WelcomeTemplate {
     pub tests_dir: String,
 }
 
+#[derive(Template)]
+#[template(path = "pages/flows.html")]
+pub struct FlowsTemplate {
+    pub has_graph: bool,
+    pub is_crawling: bool,
+    pub stats_summary: String,
+    pub personas: Vec<crate::crawl::graph::PersonaRef>,
+    pub cytoscape_elements_json: String,
+    pub divergence_count: usize,
+}
+
+impl FlowsTemplate {
+    pub fn from_graph(graph: &Option<crate::crawl::graph::FlowGraph>, is_crawling: bool) -> Self {
+        match graph {
+            Some(g) => {
+                let elements_json = g.to_cytoscape_elements().to_string();
+                let mut summary = format!(
+                    "{} pages, {} transitions, {} persona(s)",
+                    g.stats.total_nodes, g.stats.total_edges, g.stats.total_personas
+                );
+                if g.stats.divergence_points > 0 {
+                    summary.push_str(&format!(
+                        " — {} divergence point(s)",
+                        g.stats.divergence_points
+                    ));
+                }
+                Self {
+                    has_graph: true,
+                    is_crawling,
+                    stats_summary: summary,
+                    personas: g.personas.clone(),
+                    cytoscape_elements_json: elements_json,
+                    divergence_count: g.stats.divergence_points,
+                }
+            }
+            None => Self {
+                has_graph: false,
+                is_crawling,
+                stats_summary: "No flow graph yet. Start a crawl to map your app.".to_string(),
+                personas: Vec::new(),
+                cytoscape_elements_json: "[]".to_string(),
+                divergence_count: 0,
+            },
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fragment templates (HTML partials for htmx)
 // ---------------------------------------------------------------------------
@@ -116,6 +163,15 @@ pub struct LiveProgressFragment {
 #[template(path = "fragments/error.html")]
 pub struct ErrorFragment {
     pub message: String,
+}
+
+#[derive(Template)]
+#[template(path = "fragments/flow_sidebar.html")]
+pub struct FlowSidebarFragment {
+    pub node: crate::crawl::graph::FlowNode,
+    pub outgoing_edges: Vec<crate::crawl::graph::FlowEdge>,
+    pub incoming_edges: Vec<crate::crawl::graph::FlowEdge>,
+    pub graph_personas: Vec<crate::crawl::graph::PersonaRef>,
 }
 
 // ---------------------------------------------------------------------------
