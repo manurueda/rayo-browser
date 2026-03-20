@@ -71,6 +71,24 @@ pub async fn check_and_update(
             name: config.github_repo.clone(),
             app_name: config.app_name.clone(),
         });
+
+        // Derive install directory from current executable location.
+        // Without this, axoupdater can't determine where to install and the
+        // update silently fails with "not properly configured".
+        // The installer script will also create an install receipt, so future
+        // updates will use the receipt path and handle all binaries atomically.
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(bin_dir) = exe.parent()
+        {
+            let install_dir = if bin_dir.file_name()
+                == Some(std::ffi::OsStr::new("bin"))
+            {
+                bin_dir.parent().unwrap_or(bin_dir)
+            } else {
+                bin_dir
+            };
+            updater.set_install_dir(install_dir.to_string_lossy().as_ref());
+        }
     }
 
     updater

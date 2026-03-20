@@ -57,7 +57,7 @@ Tests use a local axum server serving fixtures from `tests/fixtures/`.
 ## Installation
 
 ```
-cargo install --git https://github.com/manurueda/rayo-browser rayo-mcp
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh
 ```
 
 Then: `claude mcp add rayo -- rayo-mcp`

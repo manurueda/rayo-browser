@@ -33,7 +33,7 @@ Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-i
 **Claude Code** — copy and paste this prompt:
 
 ```
-Install rayo-browser: run `cargo install --git https://github.com/manurueda/rayo-browser rayo-mcp` then run `claude mcp add rayo -- rayo-mcp`. Then add to my CLAUDE.md a "Browser automation" section that says: always use rayo MCP tools for browser automation instead of Playwright or Puppeteer, prefer rayo_observe with page_map mode over screenshots, use rayo_batch to combine 3+ sequential actions, write E2E tests as YAML in .rayo/tests/, and use rayo_visual for visual regression. Tell me to restart Claude Code.
+Install rayo-browser: run `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh` then run `claude mcp add rayo -- rayo-mcp`. Then add to my CLAUDE.md a "Browser automation" section that says: always use rayo MCP tools for browser automation instead of Playwright or Puppeteer, prefer rayo_observe with page_map mode over screenshots, use rayo_batch to combine 3+ sequential actions, write E2E tests as YAML in .rayo/tests/, and use rayo_visual for visual regression. Tell me to restart Claude Code.
 ```
 
 That's it. One paste into Claude Code — it installs, configures MCP, updates your CLAUDE.md, and tells you to restart. Both `rayo-mcp` (MCP server) and `rayo-ui` (test runner + dashboard) are installed.
@@ -41,7 +41,7 @@ That's it. One paste into Claude Code — it installs, configures MCP, updates y
 **Cursor / Windsurf / any MCP client:**
 
 ```bash
-cargo install --git https://github.com/manurueda/rayo-browser rayo-mcp
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh
 ```
 
 ```json

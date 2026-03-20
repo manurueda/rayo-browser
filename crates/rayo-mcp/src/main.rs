@@ -48,8 +48,12 @@ async fn main() -> Result<()> {
     if !config.disabled {
         let version_owned = version.to_string();
         tokio::spawn(async move {
-            if let Err(e) = rayo_updater::check_and_update(&config, &version_owned).await {
-                tracing::debug!("Update check failed: {e}");
+            match rayo_updater::check_and_update(&config, &version_owned).await {
+                Ok(rayo_updater::UpdateOutcome::Updated { from, to }) => {
+                    eprintln!("⚡ rayo updated v{from} → v{to} (restart to apply)");
+                }
+                Ok(_) => {}
+                Err(e) => tracing::debug!("Update check failed: {e}"),
             }
         });
     }
