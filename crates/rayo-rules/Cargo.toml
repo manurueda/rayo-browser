@@ -10,4 +10,4 @@ description = "AI agent speed rules engine for rayo-browser"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
+rayo-profiler = { version = "0.2.0", path = "../rayo-profiler" }

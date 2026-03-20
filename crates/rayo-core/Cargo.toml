@@ -20,7 +20,7 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
-rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
+rayo-profiler = { version = "0.2.0", path = "../rayo-profiler" }
 base64 = "0.22"
 tempfile = "3"
 

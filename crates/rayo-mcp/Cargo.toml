@@ -19,12 +19,12 @@ name = "rayo-ui"
 path = "src/ui_main.rs"
 
 [dependencies]
-rayo-ui = { version = "0.1.0", path = "../rayo-ui" }
-rayo-core = { version = "0.1.0", path = "../rayo-core", features = ["cookie-import"] }
-rayo-profiler = { version = "0.1.0", path = "../rayo-profiler" }
-rayo-rules = { version = "0.1.0", path = "../rayo-rules" }
-rayo-updater = { version = "0.1.0", path = "../rayo-updater" }
-rayo-visual = { version = "0.1.0", path = "../rayo-visual" }
+rayo-ui = { version = "0.2.0", path = "../rayo-ui" }
+rayo-core = { version = "0.2.0", path = "../rayo-core", features = ["cookie-import"] }
+rayo-profiler = { version = "0.2.0", path = "../rayo-profiler" }
+rayo-rules = { version = "0.2.0", path = "../rayo-rules" }
+rayo-updater = { version = "0.2.0", path = "../rayo-updater" }
+rayo-visual = { version = "0.2.0", path = "../rayo-visual" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 chromiumoxide = { workspace = true }
 tokio = { workspace = true }
