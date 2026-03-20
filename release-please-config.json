@@ -1,8 +1,9 @@
 {
   "packages": {
     ".": {
-      "release-type": "rust",
+      "release-type": "simple",
       "component": "rayo-mcp",
+      "bump-minor-pre-major": true,
       "extra-files": [
         {
           "type": "toml",
