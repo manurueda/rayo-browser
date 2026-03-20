@@ -1,0 +1,15 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "rust",
+      "component": "rayo-mcp",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        }
+      ]
+    }
+  }
+}

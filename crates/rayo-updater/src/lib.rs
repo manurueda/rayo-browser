@@ -80,9 +80,7 @@ pub async fn check_and_update(
         if let Ok(exe) = std::env::current_exe()
             && let Some(bin_dir) = exe.parent()
         {
-            let install_dir = if bin_dir.file_name()
-                == Some(std::ffi::OsStr::new("bin"))
-            {
+            let install_dir = if bin_dir.file_name() == Some(std::ffi::OsStr::new("bin")) {
                 bin_dir.parent().unwrap_or(bin_dir)
             } else {
                 bin_dir
