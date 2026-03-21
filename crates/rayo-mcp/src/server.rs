@@ -1,7 +1,8 @@
 //! MCP server: wires rmcp with chromiumoxide via rayo-core.
 //!
-//! 8 tools, multi-tab architecture, network interception, visual testing.
+//! 9 tools, multi-tab architecture, network interception, visual testing, error reporting.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -24,6 +25,55 @@ use rayo_rules::{RayoRulesConfig, RuleEngine};
 
 use crate::tools;
 
+/// A recorded tool error with full context for issue filing.
+#[derive(Clone, serde::Serialize)]
+struct ErrorRecord {
+    timestamp: String,
+    tool: String,
+    params: serde_json::Map<String, serde_json::Value>,
+    error: String,
+    version: &'static str,
+}
+
+/// Collects recent tool errors (ring buffer, max 50).
+struct ErrorCollector {
+    errors: VecDeque<ErrorRecord>,
+}
+
+impl ErrorCollector {
+    fn new() -> Self {
+        Self {
+            errors: VecDeque::with_capacity(50),
+        }
+    }
+
+    fn record(
+        &mut self,
+        tool: String,
+        params: serde_json::Map<String, serde_json::Value>,
+        error: String,
+    ) {
+        if self.errors.len() >= 50 {
+            self.errors.pop_front();
+        }
+        self.errors.push_back(ErrorRecord {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            tool,
+            params,
+            error,
+            version: env!("CARGO_PKG_VERSION"),
+        });
+    }
+
+    fn report(&self) -> Vec<&ErrorRecord> {
+        self.errors.iter().collect()
+    }
+
+    fn clear(&mut self) {
+        self.errors.clear();
+    }
+}
+
 fn json_schema(v: serde_json::Value) -> Arc<serde_json::Map<String, serde_json::Value>> {
     match v {
         serde_json::Value::Object(map) => Arc::new(map),
@@ -39,6 +89,7 @@ pub struct RayoServer {
     network: Arc<Mutex<NetworkInterceptor>>,
     profiler: Arc<Profiler>,
     rules: Arc<Mutex<RuleEngine>>,
+    errors: Arc<Mutex<ErrorCollector>>,
     /// MCP peer handle, set by rmcp framework after initialization.
     peer: Arc<Mutex<Option<Peer<RoleServer>>>>,
 }
@@ -59,6 +110,7 @@ impl RayoServer {
             network: Arc::new(Mutex::new(NetworkInterceptor::new())),
             profiler: Arc::new(profiler),
             rules: Arc::new(Mutex::new(RuleEngine::new(rules_config))),
+            errors: Arc::new(Mutex::new(ErrorCollector::new())),
             peer: Arc::new(Mutex::new(None)),
         }
     }
@@ -466,6 +518,17 @@ impl RayoServer {
                     "required": ["action"]
                 })),
             ),
+            Tool::new(
+                "rayo_report",
+                "Get collected tool errors for bug reporting. Returns structured error records (tool, params, error message, timestamp, version) ready for GitHub issue filing. Actions: get (return errors, optional last_n to limit count), clear (reset error log). Use this after tool failures to file an issue on manurueda/rayo-browser.",
+                json_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["get", "clear"], "default": "get" },
+                        "last_n": { "type": "integer", "description": "Return only the last N errors (default: all)" }
+                    }
+                })),
+            ),
         ]
     }
 }
@@ -585,6 +648,49 @@ impl ServerHandler for RayoServer {
                     let page = Self::resolve_page(&tabs, tab_id).await?;
                     tools::handle_visual(page, &params, &self.profiler).await
                 }
+                "rayo_report" => {
+                    let action = params
+                        .get("action")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("get");
+                    match action {
+                        "get" => {
+                            let last_n = params.get("last_n").and_then(|v| v.as_u64());
+                            let collector = self.errors.lock().await;
+                            let errors = collector.report();
+                            let errors: Vec<_> = if let Some(n) = last_n {
+                                errors.into_iter().rev().take(n as usize).rev().collect()
+                            } else {
+                                errors
+                            };
+                            if errors.is_empty() {
+                                Ok(CallToolResult::success(vec![Content::text(
+                                    "No errors recorded.",
+                                )]))
+                            } else {
+                                let report = json!({
+                                    "error_count": errors.len(),
+                                    "rayo_version": env!("CARGO_PKG_VERSION"),
+                                    "errors": errors,
+                                    "hint": "File an issue at https://github.com/manurueda/rayo-browser/issues/new with this report"
+                                });
+                                Ok(CallToolResult::success(vec![Content::text(
+                                    serde_json::to_string_pretty(&report).unwrap_or_default(),
+                                )]))
+                            }
+                        }
+                        "clear" => {
+                            self.errors.lock().await.clear();
+                            Ok(CallToolResult::success(vec![Content::text(
+                                "Error log cleared.",
+                            )]))
+                        }
+                        _ => Err(McpError::invalid_params(
+                            format!("Unknown report action: {action}"),
+                            None,
+                        )),
+                    }
+                }
                 _ => Err(McpError::invalid_request(
                     format!("Unknown tool: {tool_name}"),
                     None,
@@ -619,6 +725,11 @@ impl ServerHandler for RayoServer {
                 }
                 Err(e) => {
                     tracing::error!(tool = tool_name, error = %e, "Tool error");
+                    self.errors.lock().await.record(
+                        tool_name.to_string(),
+                        params.clone(),
+                        e.to_string(),
+                    );
                     Err(e)
                 }
             }
@@ -632,7 +743,7 @@ pub async fn run() -> Result<()> {
     let transport = rmcp::transport::io::stdio();
 
     tracing::info!(
-        "rayo-mcp v{} starting on stdio (8 tools)",
+        "rayo-mcp v{} starting on stdio (9 tools)",
         env!("CARGO_PKG_VERSION")
     );
 

@@ -1,7 +1,7 @@
 //! rayo-mcp: The fastest MCP browser automation server.
 //!
 //! Single binary. Connects to Chrome via CDP (chromiumoxide).
-//! 5 tools, ~1,500 tokens. vs Playwright MCP's 20+ tools at ~13,700 tokens.
+//! 9 tools, ~2,500 tokens. vs Playwright MCP's 20+ tools at ~13,700 tokens.
 
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;

@@ -21,7 +21,7 @@ rayo-ui CLI/UI → rayo-core + rayo-visual → Chrome
 - `rayo-core` — browser intelligence (page maps, batch, cache, waits, tabs, network, visual extensions)
 - `rayo-rules` — speed rules engine
 - `rayo-ui` — E2E test runner: YAML tests, assertions, reports, web server
-- `rayo-mcp` — MCP server binary (7 tools)
+- `rayo-mcp` — MCP server binary (9 tools)
 
 ## Commands
 
@@ -42,18 +42,6 @@ Tests that need a browser will auto-skip if Chrome isn't found.
 Install Chrome or Chromium to run integration tests.
 Tests use a local axum server serving fixtures from `tests/fixtures/`.
 
-## 7 MCP Tools
-
-| Tool | Purpose | Tokens |
-|------|---------|--------|
-| `rayo_navigate` | goto, reload, back, forward, new_tab, close_tab, list_tabs, switch_tab | ~300 |
-| `rayo_observe` | page_map, text, screenshot, inspect (computed CSS, applied rules, diagnostics) | ~300-530 |
-| `rayo_interact` | click, type, select, scroll | ~250 |
-| `rayo_batch` | execute multiple actions in 1 call | ~350 |
-| `rayo_cookie` | set, get, clear cookies | ~250 |
-| `rayo_network` | capture, block, mock, requests | ~250 |
-| `rayo_profile` | get profiling results | ~150 |
-
 ## Installation
 
 ```
@@ -71,6 +59,32 @@ Restart Claude Code so the MCP server loads. Then add to your CLAUDE.md:
 - Prefer `rayo_observe` with `page_map` mode over screenshots for page understanding
 - Use `rayo_batch` to combine 3+ sequential actions into a single call
 ```
+
+## 9 MCP Tools
+
+| Tool | Purpose | Tokens |
+|------|---------|--------|
+| `rayo_navigate` | goto, reload, back, forward, new_tab, close_tab, list_tabs, switch_tab | ~300 |
+| `rayo_observe` | page_map, text, screenshot, inspect (computed CSS, applied rules, diagnostics) | ~300-530 |
+| `rayo_interact` | click, type, select, scroll | ~250 |
+| `rayo_batch` | execute multiple actions in 1 call | ~350 |
+| `rayo_cookie` | set, get, clear cookies | ~250 |
+| `rayo_network` | capture, block, mock, requests | ~250 |
+| `rayo_profile` | get profiling results | ~150 |
+| `rayo_visual` | screenshot comparison, baseline management | ~200 |
+| `rayo_report` | get collected errors for bug reporting | ~100 |
+
+## Error reporting (auto-issue filing)
+
+When any `rayo_*` MCP tool fails:
+1. The error is automatically collected in-memory by rayo's ErrorCollector
+2. A Claude Code hook logs it to `~/.rayo/error-log.jsonl` and notifies you
+3. If a tool fails **3+ times in a session**, you MUST:
+   a. Call `rayo_report` with `action: "get"` to retrieve structured error data
+   b. File a GitHub issue: `gh issue create --repo manurueda/rayo-browser --title "Bug: <tool> — <short description>" --body "<rayo_report output + what you were trying to do>"`
+   c. Label it `bug`
+   d. Tell the user you filed the issue, then continue with a fallback approach
+4. For a single failure: retry once, then fall back to an alternative approach
 
 ## Key conventions
 
