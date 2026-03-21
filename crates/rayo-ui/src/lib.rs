@@ -59,6 +59,11 @@ enum Commands {
         #[arg(short, long)]
         suite: Option<String>,
 
+        /// Base URL for relative navigate paths (e.g. http://localhost:3000).
+        /// Overrides .rayo/config.yaml. Env var RAYO_BASE_URL takes highest priority.
+        #[arg(long)]
+        base_url: Option<String>,
+
         /// Output JSON report to file
         #[arg(long)]
         json: Option<PathBuf>,
@@ -92,6 +97,11 @@ enum Commands {
         /// Path to baselines directory
         #[arg(short, long, default_value = ".rayo/baselines")]
         baselines_dir: PathBuf,
+
+        /// Base URL for relative navigate paths (e.g. http://localhost:3000).
+        /// Overrides .rayo/config.yaml. Env var RAYO_BASE_URL takes highest priority.
+        #[arg(long)]
+        base_url: Option<String>,
 
         /// Server port
         #[arg(short, long, default_value = "4040")]
@@ -152,6 +162,7 @@ pub async fn run() -> anyhow::Result<()> {
             tests_dir,
             baselines_dir,
             suite,
+            base_url,
             json,
             html,
             abort_on_failure,
@@ -159,9 +170,28 @@ pub async fn run() -> anyhow::Result<()> {
         } => {
             let files = crate::loader::load_suites(&tests_dir)?;
 
+            // Resolve base_url: env var > CLI flag > config file
+            let rayo_config_dir = if tests_dir.ends_with("tests") {
+                tests_dir
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(".rayo"))
+            } else {
+                std::path::Path::new(".rayo")
+            };
+            let file_config = crate::loader::load_config(rayo_config_dir);
+            let resolved_base_url = std::env::var("RAYO_BASE_URL")
+                .ok()
+                .or(base_url)
+                .or(file_config.base_url);
+
+            if let Some(ref url) = resolved_base_url {
+                eprintln!("  base_url: {url}");
+            }
+
             let config = crate::runner::RunnerConfig {
                 baselines_dir,
                 abort_on_failure,
+                base_url: resolved_base_url,
             };
 
             let suites_to_run: Vec<_> = if let Some(ref name) = suite {
@@ -234,10 +264,32 @@ pub async fn run() -> anyhow::Result<()> {
         Commands::Ui {
             tests_dir,
             baselines_dir,
+            base_url,
             port,
             no_open,
         } => {
-            crate::server::start_server(tests_dir, baselines_dir, port, !no_open).await?;
+            // Resolve base_url: env var > CLI flag > config file
+            let rayo_config_dir = if tests_dir.ends_with("tests") {
+                tests_dir
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new(".rayo"))
+            } else {
+                std::path::Path::new(".rayo")
+            };
+            let file_config = crate::loader::load_config(rayo_config_dir);
+            let resolved_base_url = std::env::var("RAYO_BASE_URL")
+                .ok()
+                .or(base_url)
+                .or(file_config.base_url);
+
+            crate::server::start_server(
+                tests_dir,
+                baselines_dir,
+                port,
+                !no_open,
+                resolved_base_url,
+            )
+            .await?;
         }
 
         Commands::Discover {

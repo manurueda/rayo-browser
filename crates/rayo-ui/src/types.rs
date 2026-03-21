@@ -230,3 +230,11 @@ pub struct NetworkAssertion {
     #[serde(default)]
     pub method: Option<String>,
 }
+
+/// Project-level rayo configuration (`.rayo/config.yaml`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RayoConfig {
+    /// Base URL prepended to relative navigate paths.
+    #[serde(default)]
+    pub base_url: Option<String>,
+}

@@ -37,6 +37,7 @@ const HTMX_WS_JS: &str = include_str!("../static/htmx-ws.js");
 struct AppState {
     tests_dir: PathBuf,
     baselines_dir: PathBuf,
+    base_url: Option<String>,
     results: Mutex<Vec<SuiteResult>>,
     event_tx: broadcast::Sender<TestEvent>,
     discover_status: RwLock<DiscoverStatus>,
@@ -61,6 +62,7 @@ pub async fn start_server(
     baselines_dir: PathBuf,
     port: u16,
     open_browser: bool,
+    base_url: Option<String>,
 ) -> anyhow::Result<()> {
     let (event_tx, _) = broadcast::channel(256);
 
@@ -79,6 +81,7 @@ pub async fn start_server(
     let state = Arc::new(AppState {
         tests_dir: tests_dir.clone(),
         baselines_dir: baselines_dir.clone(),
+        base_url,
         results: Mutex::new(Vec::new()),
         event_tx: event_tx.clone(),
         discover_status: RwLock::new(discover_status),
@@ -284,6 +287,7 @@ async fn run_all(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Resp
     let config = RunnerConfig {
         baselines_dir: state.baselines_dir.clone(),
         abort_on_failure: false,
+        base_url: state.base_url.clone(),
     };
 
     let mut suite_results = Vec::new();
@@ -338,6 +342,7 @@ async fn run_named(
     let config = RunnerConfig {
         baselines_dir: state.baselines_dir.clone(),
         abort_on_failure: false,
+        base_url: state.base_url.clone(),
     };
 
     match runner::run_suite(&file.suite, &config, Some(state.event_tx.clone())).await {

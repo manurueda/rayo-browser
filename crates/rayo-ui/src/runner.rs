@@ -25,6 +25,8 @@ pub enum TestEvent {
 pub struct RunnerConfig {
     pub baselines_dir: PathBuf,
     pub abort_on_failure: bool,
+    /// Base URL prepended to relative navigate paths (e.g. `http://localhost:3000`).
+    pub base_url: Option<String>,
 }
 
 impl Default for RunnerConfig {
@@ -32,6 +34,7 @@ impl Default for RunnerConfig {
         Self {
             baselines_dir: PathBuf::from(".rayo/baselines"),
             abort_on_failure: false,
+            base_url: None,
         }
     }
 }
@@ -75,9 +78,11 @@ pub async fn run_suite(
     let mut step_index = 0;
     let mut had_failure = false;
 
+    let base_url = config.base_url.as_deref();
+
     // Run setup steps
     for step in &suite.setup {
-        let result = run_step(&page, step, &baseline_mgr, &event_tx, step_index).await;
+        let result = run_step(&page, step, &baseline_mgr, &event_tx, step_index, base_url).await;
         if !result.pass {
             had_failure = true;
         }
@@ -91,7 +96,8 @@ pub async fn run_suite(
     // Run test steps
     if !had_failure || !config.abort_on_failure {
         for step in &suite.steps {
-            let result = run_step(&page, step, &baseline_mgr, &event_tx, step_index).await;
+            let result =
+                run_step(&page, step, &baseline_mgr, &event_tx, step_index, base_url).await;
             if !result.pass {
                 had_failure = true;
             }
@@ -105,7 +111,7 @@ pub async fn run_suite(
 
     // Run teardown steps (always, even on failure)
     for step in &suite.teardown {
-        let result = run_step(&page, step, &baseline_mgr, &event_tx, step_index).await;
+        let result = run_step(&page, step, &baseline_mgr, &event_tx, step_index, base_url).await;
         step_results.push(result);
         step_index += 1;
     }
@@ -143,6 +149,7 @@ async fn run_step(
     baseline_mgr: &BaselineManager,
     event_tx: &Option<broadcast::Sender<TestEvent>>,
     index: usize,
+    base_url: Option<&str>,
 ) -> StepResult {
     let step_name = step
         .name
@@ -159,7 +166,7 @@ async fn run_step(
 
     // Execute the action
     let action_name = step_action_name(step);
-    let action_result = execute_action(page, step).await;
+    let action_result = execute_action(page, step, base_url).await;
 
     let mut result = match action_result {
         Ok(()) => StepResult {
@@ -239,9 +246,34 @@ fn step_action_name(step: &TestStep) -> String {
     }
 }
 
-async fn execute_action(page: &RayoPage, step: &TestStep) -> Result<(), TestError> {
+/// Resolve a URL against an optional base URL.
+/// Relative paths (starting with `/`) get the base prepended.
+/// Absolute URLs (containing `://`) are returned unchanged.
+fn resolve_url(url: &str, base_url: Option<&str>) -> String {
+    if url.contains("://") {
+        return url.to_string();
+    }
+    match base_url {
+        Some(base) => {
+            let base = base.trim_end_matches('/');
+            if url.starts_with('/') {
+                format!("{base}{url}")
+            } else {
+                format!("{base}/{url}")
+            }
+        }
+        None => url.to_string(),
+    }
+}
+
+async fn execute_action(
+    page: &RayoPage,
+    step: &TestStep,
+    base_url: Option<&str>,
+) -> Result<(), TestError> {
     if let Some(url) = &step.navigate {
-        page.goto(url).await?;
+        let resolved = resolve_url(url, base_url);
+        page.goto(&resolved).await?;
     } else if let Some(target) = &step.click {
         let sel = target.to_selector();
         page.click(sel.as_deref(), None).await?;
@@ -263,14 +295,17 @@ async fn execute_action(page: &RayoPage, step: &TestStep) -> Result<(), TestErro
             page.wait_for_network_idle(500, action.timeout_ms).await?;
         }
     } else if let Some(actions) = &step.batch {
-        let batch_actions: Vec<BatchAction> = actions.iter().filter_map(to_batch_action).collect();
+        let batch_actions: Vec<BatchAction> = actions
+            .iter()
+            .filter_map(|a| to_batch_action(a, base_url))
+            .collect();
         page.execute_batch(batch_actions, false).await?;
     }
     // assert_only steps have no action — that's valid
     Ok(())
 }
 
-fn to_batch_action(a: &BatchStepAction) -> Option<BatchAction> {
+fn to_batch_action(a: &BatchStepAction, base_url: Option<&str>) -> Option<BatchAction> {
     let target = if let Some(sel) = &a.selector {
         ActionTarget::Selector {
             selector: sel.clone(),
@@ -302,7 +337,7 @@ fn to_batch_action(a: &BatchStepAction) -> Option<BatchAction> {
         }),
         "hover" => Some(BatchAction::Hover { target }),
         "goto" => Some(BatchAction::Goto {
-            url: a.url.clone().unwrap_or_default(),
+            url: resolve_url(&a.url.clone().unwrap_or_default(), base_url),
         }),
         _ => None,
     }
@@ -524,5 +559,63 @@ async fn check_screenshot(
             diff_report: None,
             new_baseline: false,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_url_absolute_unchanged() {
+        assert_eq!(
+            resolve_url("https://example.com/page", Some("http://localhost:3000")),
+            "https://example.com/page"
+        );
+        assert_eq!(
+            resolve_url("http://other.dev/api", Some("http://localhost:3000")),
+            "http://other.dev/api"
+        );
+    }
+
+    #[test]
+    fn resolve_url_relative_with_base() {
+        assert_eq!(
+            resolve_url("/", Some("http://localhost:3000")),
+            "http://localhost:3000/"
+        );
+        assert_eq!(
+            resolve_url("/blog", Some("http://localhost:3000")),
+            "http://localhost:3000/blog"
+        );
+        assert_eq!(
+            resolve_url("/api/v1/users", Some("http://localhost:3000")),
+            "http://localhost:3000/api/v1/users"
+        );
+    }
+
+    #[test]
+    fn resolve_url_trailing_slash_on_base() {
+        assert_eq!(
+            resolve_url("/page", Some("http://localhost:3000/")),
+            "http://localhost:3000/page"
+        );
+    }
+
+    #[test]
+    fn resolve_url_no_leading_slash() {
+        assert_eq!(
+            resolve_url("page", Some("http://localhost:3000")),
+            "http://localhost:3000/page"
+        );
+    }
+
+    #[test]
+    fn resolve_url_no_base() {
+        assert_eq!(resolve_url("/page", None), "/page");
+        assert_eq!(
+            resolve_url("https://example.com", None),
+            "https://example.com"
+        );
     }
 }
