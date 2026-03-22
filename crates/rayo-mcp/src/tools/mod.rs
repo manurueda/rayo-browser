@@ -1,6 +1,6 @@
 //! MCP tool handlers.
 //!
-//! 8 tools, ~2,300 tokens total tool description.
+//! 9 tools, ~2,500 tokens total tool description.
 //! Handlers receive a resolved &RayoPage — tab resolution is done by the server.
 
 use std::sync::Arc;
@@ -11,8 +11,10 @@ use rayo_profiler::Profiler;
 use rayo_rules::RuleEngine;
 use rmcp::Error as McpError;
 use rmcp::model::{CallToolResult, Content};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
+
+use crate::error_collector::ErrorCollector;
 
 /// Helper to convert RayoError or similar into McpError.
 fn internal_err(e: impl std::fmt::Display) -> McpError {
@@ -958,6 +960,56 @@ pub async fn handle_visual(
         }
         _ => Err(McpError::invalid_params(
             format!("Unknown visual action: {action}. Use capture, compare, or baseline."),
+            None,
+        )),
+    }
+}
+
+pub async fn handle_report(
+    errors: &Mutex<ErrorCollector>,
+    params: &serde_json::Map<String, Value>,
+) -> Result<CallToolResult, McpError> {
+    let action = params
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("get");
+
+    match action {
+        "get" => {
+            let last_n = params.get("last_n").and_then(|v| v.as_u64());
+            let collector = errors.lock().await;
+            let all_errors = collector.report();
+
+            if all_errors.is_empty() {
+                return Ok(CallToolResult::success(vec![Content::text(
+                    "No errors recorded.",
+                )]));
+            }
+
+            let errors_slice: Vec<_> = if let Some(n) = last_n {
+                all_errors.iter().rev().take(n as usize).rev().collect()
+            } else {
+                all_errors.iter().collect()
+            };
+
+            let report = json!({
+                "error_count": errors_slice.len(),
+                "rayo_version": collector.version(),
+                "errors": errors_slice,
+                "hint": "File an issue at https://github.com/manurueda/rayo-browser/issues/new with this report"
+            });
+            Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&report).unwrap_or_default(),
+            )]))
+        }
+        "clear" => {
+            errors.lock().await.clear();
+            Ok(CallToolResult::success(vec![Content::text(
+                "Error log cleared.",
+            )]))
+        }
+        _ => Err(McpError::invalid_params(
+            format!("Unknown report action: {action}"),
             None,
         )),
     }

@@ -1,6 +1,6 @@
 //! Integration tests for the MCP server tool handlers.
 //!
-//! Tests all 7 MCP tools by calling handlers directly.
+//! Tests all 9 MCP tools by calling handlers directly.
 //! Uses a single shared browser instance to avoid Chrome process conflicts.
 //! A local axum server serves test fixtures instead of hitting the network.
 
@@ -424,4 +424,110 @@ async fn test_mcp_tools() {
     }
 
     eprintln!("ALL MCP INTEGRATION TESTS PASSED");
+}
+
+/// Test rayo_report tool — no browser needed.
+#[tokio::test]
+async fn test_rayo_report() {
+    use rayo_mcp::error_collector::ErrorCollector;
+
+    let errors = Arc::new(Mutex::new(ErrorCollector::new("0.2.0-test")));
+
+    // --- Empty report ---
+    {
+        let params = serde_json::json!({ "action": "get" });
+        let result = rayo_mcp::tools::handle_report(&errors, params.as_object().unwrap()).await;
+        assert!(result.is_ok());
+        let json = serde_json::to_string(&result.unwrap().content).unwrap();
+        assert!(json.contains("No errors recorded"), "empty report: {json}");
+        eprintln!("  PASS: rayo_report (empty)");
+    }
+
+    // --- Record errors and retrieve ---
+    {
+        errors.lock().await.record_with_timestamp(
+            "rayo_navigate".into(),
+            {
+                let mut m = serde_json::Map::new();
+                m.insert(
+                    "url".into(),
+                    serde_json::Value::String("https://broken.test".into()),
+                );
+                m
+            },
+            "timeout after 5000ms".into(),
+            "2026-03-22T10:00:00Z".into(),
+        );
+        errors.lock().await.record_with_timestamp(
+            "rayo_observe".into(),
+            serde_json::Map::new(),
+            "CDP error: session closed".into(),
+            "2026-03-22T10:01:00Z".into(),
+        );
+
+        let params = serde_json::json!({ "action": "get" });
+        let result = rayo_mcp::tools::handle_report(&errors, params.as_object().unwrap()).await;
+        assert!(result.is_ok());
+        let json = serde_json::to_string(&result.unwrap().content).unwrap();
+        assert!(
+            json.contains("error_count"),
+            "report has error_count: {json}"
+        );
+        assert!(json.contains("rayo_navigate"), "report has tool name");
+        assert!(
+            json.contains("timeout after 5000ms"),
+            "report has error message"
+        );
+        assert!(json.contains("0.2.0-test"), "report has version");
+        assert!(json.contains("manurueda/rayo-browser"), "report has hint");
+        eprintln!("  PASS: rayo_report (get with errors)");
+    }
+
+    // --- last_n filter ---
+    {
+        let params = serde_json::json!({ "action": "get", "last_n": 1 });
+        let result = rayo_mcp::tools::handle_report(&errors, params.as_object().unwrap()).await;
+        assert!(result.is_ok());
+        let json = serde_json::to_string(&result.unwrap().content).unwrap();
+        // Should only have the last error (rayo_observe)
+        assert!(
+            json.contains("rayo_observe"),
+            "last_n=1 should have observe"
+        );
+        assert!(
+            !json.contains("rayo_navigate"),
+            "last_n=1 should not have navigate: {json}"
+        );
+        eprintln!("  PASS: rayo_report (last_n filter)");
+    }
+
+    // --- Clear ---
+    {
+        let params = serde_json::json!({ "action": "clear" });
+        let result = rayo_mcp::tools::handle_report(&errors, params.as_object().unwrap()).await;
+        assert!(result.is_ok());
+        let json = serde_json::to_string(&result.unwrap().content).unwrap();
+        assert!(json.contains("cleared"), "clear response: {json}");
+
+        // Verify empty after clear
+        let params = serde_json::json!({ "action": "get" });
+        let result = rayo_mcp::tools::handle_report(&errors, params.as_object().unwrap()).await;
+        assert!(result.is_ok());
+        let json = serde_json::to_string(&result.unwrap().content).unwrap();
+        assert!(
+            json.contains("No errors recorded"),
+            "empty after clear: {json}"
+        );
+        eprintln!("  PASS: rayo_report (clear)");
+    }
+
+    // --- Invalid action ---
+    {
+        let params = serde_json::json!({ "action": "bogus" });
+        let result = rayo_mcp::tools::handle_report(&errors, params.as_object().unwrap()).await;
+        assert!(result.is_err(), "bogus action should fail");
+        eprintln!("  PASS: rayo_report (invalid action)");
+    }
+
+    eprintln!("ALL REPORT TESTS PASSED");
 }
