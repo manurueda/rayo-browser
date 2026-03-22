@@ -32,7 +32,7 @@ pub fn generate_html_report(result: &SuiteResult) -> String {
     <span class="step-time">{duration}ms</span>
   </div>"#,
             name = html_escape(&step.name),
-            action = step.action,
+            action = html_escape(&step.action),
             duration = step.duration_ms,
         ));
 
@@ -56,7 +56,7 @@ pub fn generate_html_report(result: &SuiteResult) -> String {
     <span>{type_name}</span>
     {msg}
   </div>"#,
-                type_name = assertion.assertion_type,
+                type_name = html_escape(&assertion.assertion_type),
                 msg = assertion
                     .message
                     .as_ref()
@@ -123,6 +123,7 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }
 
 // ---------------------------------------------------------------------------

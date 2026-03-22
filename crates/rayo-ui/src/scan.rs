@@ -111,7 +111,12 @@ pub async fn run_scan(
     }
 
     // Attach descriptions from discover context
-    let _ = discover_result; // used for context/future enrichment
+    let _ = discover_result;
+    for flow in &mut flow_results {
+        if flow.description.is_empty() {
+            flow.description = narrative::describe_flow_from_name(&flow.name, &flow.url);
+        }
+    }
 
     flow_results
 }

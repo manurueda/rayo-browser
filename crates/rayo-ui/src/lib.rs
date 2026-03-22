@@ -403,12 +403,12 @@ pub async fn run() -> anyhow::Result<()> {
                 flows: flow_results,
             };
 
-            // Phase 6: Save run
-            let run_dir = crate::persistence::save_run(&scan_result, std::path::Path::new("."))?;
-
-            // Phase 7: Compare with previous run
+            // Phase 6: Compare with previous run (before saving, so we don't compare against ourselves)
             let scan_diff =
                 crate::rundiff::compare_with_latest(&scan_result, std::path::Path::new("."));
+
+            // Phase 7: Save run
+            let run_dir = crate::persistence::save_run(&scan_result, std::path::Path::new("."))?;
 
             // Phase 8: Terminal summary
             crate::terminal::print_scan_summary(&scan_result, scan_diff.as_ref(), &url);
