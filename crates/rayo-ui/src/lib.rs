@@ -18,12 +18,17 @@
 //! └─────────────────────────────┘
 //! ```
 
+pub mod badge;
 pub mod discover;
 pub mod error;
 pub mod loader;
+pub mod narrative;
+pub mod persistence;
 pub mod report;
 pub mod result;
+pub mod rundiff;
 pub mod runner;
+pub mod scan;
 pub mod server;
 pub mod templates;
 pub mod terminal;
@@ -110,6 +115,36 @@ enum Commands {
         /// Don't open browser automatically
         #[arg(long)]
         no_open: bool,
+    },
+
+    /// Scan an app: discover flows, test them, show results
+    Scan {
+        /// Target URL (e.g., http://localhost:3000)
+        url: String,
+
+        /// Project root directory for code analysis
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+
+        /// Open dashboard in browser after scan
+        #[arg(long)]
+        open: bool,
+
+        /// Generate static HTML report
+        #[arg(long)]
+        report: Option<PathBuf>,
+
+        /// Generate SVG badge
+        #[arg(long)]
+        badge: Option<PathBuf>,
+
+        /// Only discover routes affected by current branch diff
+        #[arg(long)]
+        diff: bool,
+
+        /// Maximum pages to explore
+        #[arg(long, default_value = "50")]
+        max_pages: usize,
     },
 
     /// Auto-discover user flows and generate test files
@@ -292,6 +327,129 @@ pub async fn run() -> anyhow::Result<()> {
             .await?;
         }
 
+        Commands::Scan {
+            url,
+            project_dir,
+            open,
+            report,
+            badge,
+            diff,
+            max_pages,
+        } => {
+            let scan_start = std::time::Instant::now();
+            let tests_dir = PathBuf::from(".rayo/tests");
+            let baselines_dir = PathBuf::from(".rayo/baselines");
+
+            // Phase 1-3: Discover
+            println!("\n  \x1b[1m\u{26a1} rayo scan\x1b[0m");
+            println!("  =========");
+
+            let discover_config = crate::discover::DiscoverConfig {
+                url: url.clone(),
+                project_dir,
+                tests_dir: tests_dir.clone(),
+                baselines_dir: baselines_dir.clone(),
+                diff_mode: diff,
+                force: true, // always overwrite during scan
+                max_pages,
+            };
+
+            let discover_result = crate::discover::discover(discover_config).await?;
+
+            // Phase 4: Run flows through generated test suites
+            println!("\n  Phase 4: Running discovered flows...");
+            let flow_results =
+                crate::scan::run_scan(&url, &discover_result, &tests_dir, &baselines_dir).await;
+
+            // Phase 5: Build ScanResult
+            let total_flows = flow_results.len();
+            let passed_flows = flow_results.iter().filter(|f| f.passed).count();
+            let failed_flows = total_flows - passed_flows;
+
+            // Compute health score: weighted by importance
+            let health_score = if total_flows == 0 {
+                discover_result.health_score
+            } else {
+                let total_weight: u32 = flow_results
+                    .iter()
+                    .map(|f| importance_weight(&f.importance))
+                    .sum();
+                let passed_weight: u32 = flow_results
+                    .iter()
+                    .filter(|f| f.passed)
+                    .map(|f| importance_weight(&f.importance))
+                    .sum();
+                if total_weight > 0 {
+                    ((passed_weight as f64 / total_weight as f64) * 100.0) as u32
+                } else {
+                    discover_result.health_score
+                }
+            };
+
+            let scan_duration_ms = scan_start.elapsed().as_millis() as u64;
+            let total_duration_ms: u64 = flow_results.iter().map(|f| f.duration_ms).sum();
+
+            let scan_result = crate::persistence::ScanResult {
+                url: url.clone(),
+                framework: discover_result.framework.clone(),
+                health_score,
+                total_flows,
+                passed_flows,
+                failed_flows,
+                total_duration_ms,
+                scan_duration_ms,
+                console_errors: discover_result.console_errors as u32,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                flows: flow_results,
+            };
+
+            // Phase 6: Save run
+            let run_dir = crate::persistence::save_run(&scan_result, std::path::Path::new("."))?;
+
+            // Phase 7: Compare with previous run
+            let scan_diff =
+                crate::rundiff::compare_with_latest(&scan_result, std::path::Path::new("."));
+
+            // Phase 8: Terminal summary
+            crate::terminal::print_scan_summary(&scan_result, scan_diff.as_ref(), &url);
+
+            // Phase 9: Report & badge
+            if let Some(report_path) = report {
+                let mut scan_for_report = scan_result.clone();
+                crate::report::inline_screenshots(&mut scan_for_report, &run_dir);
+                let html =
+                    crate::report::generate_scan_report(&scan_for_report, scan_diff.as_ref());
+                std::fs::write(&report_path, html)?;
+                eprintln!("  Report: {}", report_path.display());
+            }
+            if let Some(badge_path) = badge {
+                crate::badge::save_badge(scan_result.health_score, &badge_path)?;
+                eprintln!("  Badge: {}", badge_path.display());
+            }
+
+            // Phase 10: System sound
+            #[cfg(target_os = "macos")]
+            {
+                let sound = if scan_result.failed_flows == 0 {
+                    "Glass"
+                } else {
+                    "Basso"
+                };
+                let _ = std::process::Command::new("afplay")
+                    .arg(format!("/System/Library/Sounds/{sound}.aiff"))
+                    .spawn();
+            }
+
+            // Phase 11: Open dashboard if requested
+            if open {
+                let _ = open::that(format!("file://{}", run_dir.join("result.json").display()));
+            }
+
+            if scan_result.failed_flows > 0 {
+                std::process::exit(1);
+            }
+        }
+
         Commands::Discover {
             url,
             project_dir,
@@ -330,4 +488,15 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Weight factor for importance levels (used in health score calculation).
+fn importance_weight(importance: &str) -> u32 {
+    match importance {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 1,
+    }
 }
