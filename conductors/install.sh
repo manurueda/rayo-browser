@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 SKILLS_DIR="$HOME/.claude/skills"
+VERSION=$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "unknown")
 DRY_RUN=false
 
 if [ "${1:-}" = "--dry" ]; then
@@ -22,7 +23,7 @@ if [ "${1:-}" = "--dry" ]; then
   echo ""
 fi
 
-echo "=== Conductor & Skills Installer ==="
+echo "=== Conductor & Skills Installer v${VERSION} ==="
 echo "Source:       $REPO_ROOT"
 echo "Project root: $PROJECT_ROOT"
 echo "Skills dir:   $SKILLS_DIR"

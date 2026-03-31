@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-FIX_VERSION="2.2.0"
+FIX_VERSION=$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo "0.0.0")
 PROJECT_DIR="$(git rev-parse --show-toplevel)"
 FIX_DIR="$PROJECT_DIR/.fix"
 WORKTREE_BASE="$PROJECT_DIR/.worktrees"

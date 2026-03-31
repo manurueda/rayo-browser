@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-FEATURE_VERSION="2.1.0"
+FEATURE_VERSION=$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo "0.0.0")
 PROJECT_DIR="$(git rev-parse --show-toplevel)"
 FEATURE_DIR="$PROJECT_DIR/.feature"
 WORKTREE_BASE="$PROJECT_DIR/.worktrees"
