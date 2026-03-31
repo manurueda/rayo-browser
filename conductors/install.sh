@@ -196,6 +196,7 @@ ENTRIES=(
   ".feature/state-*.json"
   ".feature/state.json"
   ".fix/state.json"
+  ".fix/logs/"
 )
 
 if $DRY_RUN; then

@@ -67,7 +67,7 @@ For each bug report received:
 All commands use your profile (`-p YOUR_PROFILE`). Your profile is provided at launch (e.g. `fix-hide-auto-mode`). **Use your profile for all worker sessions too.**
 
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" -t "TITLE" -c claude --worktree BRANCH -m "PROMPT"
+agent-deck -p YOUR_PROFILE launch ~/aide -t "TITLE" -c claude --worktree BRANCH -m "PROMPT"
 agent-deck -p YOUR_PROFILE status --json
 agent-deck -p YOUR_PROFILE list --json
 agent-deck -p YOUR_PROFILE session output TITLE -q
@@ -106,7 +106,7 @@ This keeps the system clean as you go. Never leave dead worktrees or sessions be
 ### 1. Setup
 
 ```bash
-cd "$PROJECT_ROOT" && git fetch origin
+cd ~/aide && git fetch origin
 ```
 
 If `branch` exists:
@@ -133,7 +133,7 @@ Launch **3 parallel DIAGNOSE workers**, each with a different investigation stra
 
 **Worker A — Top-Down (trace from UI to backend):**
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+agent-deck -p YOUR_PROFILE launch ~/aide \
   -t "diagnose-topdown-SLUG" \
   -c claude \
   --worktree <branch>/diagnose-topdown \
@@ -151,7 +151,7 @@ STRATEGY: TOP-DOWN — Start from the user-facing symptom and trace inward.
 
 **Worker B — Bottom-Up (search for errors and work outward):**
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+agent-deck -p YOUR_PROFILE launch ~/aide \
   -t "diagnose-bottomup-SLUG" \
   -c claude \
   --worktree <branch>/diagnose-bottomup \
@@ -169,7 +169,7 @@ STRATEGY: BOTTOM-UP — Start from keywords, error messages, and types, then wor
 
 **Worker C — History (git blame, recent changes):**
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+agent-deck -p YOUR_PROFILE launch ~/aide \
   -t "diagnose-history-SLUG" \
   -c claude \
   --worktree <branch>/diagnose-history \
@@ -195,7 +195,7 @@ Read `.fix/diagnose-prompt.md`. Replace `{{BUG_REPORT}}` with the user's descrip
 Launch a **CHALLENGER worker** with all 3 diagnoses:
 
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+agent-deck -p YOUR_PROFILE launch ~/aide \
   -t "challenger-SLUG" \
   -c claude \
   --worktree <branch>/challenger \
@@ -227,7 +227,7 @@ If all 3 diagnose workers returned `DIAGNOSIS BLOCKED` → skip challenger, repo
 For each bug, launch a RED worker. **Independent bugs run in parallel.**
 
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+agent-deck -p YOUR_PROFILE launch ~/aide \
   -t "red-BUG_NAME" \
   -c claude \
   --worktree <branch>/red-BUG_NAME \
@@ -260,7 +260,7 @@ When RED worker outputs `RED COMPLETE`:
 For each bug, launch a GREEN worker. **Independent bugs run in parallel.**
 
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+agent-deck -p YOUR_PROFILE launch ~/aide \
   -t "green-BUG_NAME" \
   -c claude \
   --worktree <branch>/green-BUG_NAME \
@@ -288,80 +288,97 @@ When GREEN worker outputs `GREEN COMPLETE`:
 
 ### 5. ADVERSARIAL Phase — Harden the Fix
 
-Launch a BREAKER on all affected files:
+**Prepare the breaker context** — collect the git diff and RED-phase test file list:
 
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+# Get the diff of what changed (only source files, not tests)
+GIT_DIFF=$(git checkout <branch> && git diff main -- $(git diff --name-only main | grep -v '\.test\.') && git checkout main)
+
+# List RED-phase test files
+RED_TEST_FILES=$(git checkout <branch> && git diff --name-only main | grep '\.test\.' && git checkout main)
+```
+
+Launch a BREAKER:
+
+```bash
+agent-deck -p YOUR_PROFILE launch ~/aide \
   -t "breaker-SLUG" \
   -c claude \
   --worktree <branch>/break \
   -m "BREAKER_PROMPT"
 ```
 
-Read `.fix/breaker-prompt.md`. Replace `{{AFFECTED_FILES}}` with all source + test files.
+Read `.fix/breaker-prompt.md`. Replace:
+- `{{GIT_DIFF}}` with the actual diff output (so the breaker knows exactly what changed)
+- `{{RED_TEST_FILES}}` with the list of test files from the RED phase (so the breaker doesn't duplicate)
+- `{{FIX_NAME}}` with the fix name
+
+**Post-breaker validation** — reject tests that assert broken behaviour:
+```bash
+# After breaker commits, check for BUG: prefix in test names — these are banned
+git checkout <branch>
+if grep -r 'BUG:' --include='*.test.*' tests/ | grep -v 'test\.skip\|test\.todo'; then
+  echo "REJECTED: breaker committed tests with BUG: prefix. Tests must assert correct behaviour or use test.skip()."
+  # Re-launch breaker with feedback
+fi
+git checkout main
+```
 
 **If breaker finds bugs:**
 1. Run the **Worker Cleanup Procedure** for breaker-SLUG (DO NOT merge failing tests)
-2. Launch FIXER with bug details:
+2. **Classify bugs by scope** — breaker reports each bug with `Scope: ORIGINAL_FIX | PRE_EXISTING`. Only ORIGINAL_FIX bugs go to the fixer. PRE_EXISTING bugs are logged but not fixed.
+3. Launch FIXER with ORIGINAL_FIX bugs only:
    ```bash
-   agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
+   agent-deck -p YOUR_PROFILE launch ~/aide \
      -t "fixer-ROUND" \
      -c claude \
      --worktree <branch>/fixer-ROUND \
      -m "FIXER_PROMPT_WITH_BUGS"
    ```
-3. Merge fixer branch to fix branch, then run **Worker Cleanup Procedure** for fixer-ROUND
-4. Re-launch breaker
-5. Iterate until breaker finds ZERO bugs (max 3 iterations — if still failing after 3, report and stop)
+   Replace `{{ORIGINAL_BUG_NAME}}` and `{{ORIGINAL_AFFECTED_FILES}}` in the fixer prompt so it can scope-check.
+4. Merge fixer branch to fix branch, then run **Worker Cleanup Procedure** for fixer-ROUND
+5. Re-launch breaker
+6. Iterate until breaker finds ZERO ORIGINAL_FIX bugs (max 3 iterations — PRE_EXISTING bugs don't block the pipeline)
 
 **If breaker finds nothing:** merge passing adversarial tests, then run **Worker Cleanup Procedure** for breaker-SLUG. Move on.
 
-### 6. E2E Phase — Browser Verification (UI bugs only)
+### 6. Render Test Phase — Component Verification (UI bugs only)
 
-**Skip this phase if the bug does not involve UI** (i.e., no files in `components/` or `hooks/` with UI interactions in the affected files).
+**Skip this phase if the bug does not involve UI** (i.e., no `.tsx` files in the affected files list).
 
-**How to decide:** If the diagnosis mentions user interactions (clicking, typing, navigating), visual elements, or component behavior → run E2E. If the bug is purely server-side, type-level, or utility logic → skip.
+**How to decide:** If affected files include `.tsx` components → run render tests. If the bug is purely server-side, type-level, or utility logic → skip.
 
-Launch an E2E worker with rayo MCP attached:
+Launch a render test worker in an isolated worktree:
 
 ```bash
-agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
-  -t "e2e-SLUG" \
+agent-deck -p YOUR_PROFILE launch ~/aide \
+  -t "render-SLUG" \
   -c claude \
-  -mcp rayo \
-  -m "E2E_WORKER_PROMPT"
+  --worktree <branch>/render \
+  -m "RENDER_WORKER_PROMPT"
 ```
-
-**Important:** The E2E worker runs on the main worktree (no `--worktree` flag) because it needs to start the dev server and test in the browser. Only one E2E worker can run at a time.
 
 Read `.fix/e2e-prompt.md`. Replace placeholders with bug details from the validated diagnosis.
 
-The E2E worker:
-- Starts the dev server (`npm run dev`)
-- Navigates to the relevant page via rayo
-- Executes the user story (clicks, types, etc.)
-- Asserts the fix works correctly
-- Reports pass/fail with details
-- Kills the dev server
+The render test worker:
+- Uses `@testing-library/react` (no browser, no dev server)
+- Writes lightweight render tests for affected components
+- Verifies components render correctly, handle interactions, show fixed behaviour
+- Maximum 3 `vi.mock()` calls per file
+- Follows the test style guide
 
-When E2E worker outputs `E2E COMPLETE`:
-1. Run the **Worker Cleanup Procedure** for e2e-SLUG
-2. Proceed to SCENARIO phase (or skip if no repro)
+When render worker outputs `RENDER COMPLETE`:
+1. Merge worker branch to fix branch
+2. Run the **Worker Cleanup Procedure** for render-SLUG
+3. Proceed to SCENARIO phase (or skip if no repro)
 
-When E2E worker outputs `E2E FAILED`:
-1. Run the **Worker Cleanup Procedure** for e2e-SLUG
+When render worker outputs `RENDER FAILED`:
+1. Run the **Worker Cleanup Procedure** for render-SLUG
 2. Parse the failure details
-3. Launch FIXER with the E2E failure information:
-   ```bash
-   agent-deck -p YOUR_PROFILE launch "$PROJECT_ROOT" \
-     -t "e2e-fixer-ROUND" \
-     -c claude \
-     --worktree <branch>/e2e-fixer-ROUND \
-     -m "FIXER_PROMPT_WITH_E2E_FAILURES"
-   ```
-4. Merge fixer branch, run **Worker Cleanup Procedure** for e2e-fixer-ROUND
-5. Re-launch E2E worker
-6. Iterate until E2E passes (max 3 iterations)
+3. Launch FIXER with the render test failure information
+4. Merge fixer branch, run **Worker Cleanup Procedure**
+5. Re-launch render worker
+6. Iterate until render tests pass (max 3 iterations)
 
 ### 7. SCENARIO Phase — Terminal Reproduction (legacy)
 
@@ -426,7 +443,7 @@ git push origin main
 Workers should already be cleaned up from per-step cleanup. For the final cleanup, run the launch script's `stop` command — it handles everything (sessions, worktrees, merged branches, worker branches, state file):
 
 ```bash
-cd "$PROJECT_ROOT" && .fix/launch.sh stop SLUG
+cd ~/aide && .fix/launch.sh stop SLUG
 ```
 
 Replace `SLUG` with your actual slug (e.g., `hide-auto-mode`). This is a single command — do NOT write manual cleanup scripts.
@@ -542,3 +559,58 @@ If any phase hits its limit → update state to `incomplete`, report what failed
 7. **Iterate, don't give up.** If something fails, fix it and retry (up to 3 times).
 8. **Auto-respond.** Keep workers moving.
 9. **Clean as you go.** Run the Worker Cleanup Procedure after every worker completes. Final sweep catches anything missed.
+10. **Log everything.** Every significant event gets an NDJSON log entry.
+
+---
+
+## Detailed Activity Log
+
+Maintain a detailed log at `.fix/logs/YYYY-MM-DD.ndjson` (one file per UTC day, newline-delimited JSON). Write one entry per significant event. This log is for post-hoc analysis — be verbose.
+
+**Log every event:**
+```json
+{"ts":"ISO","event":"fix_started","slug":"SLUG","bug_report":"summary"}
+{"ts":"ISO","event":"phase_entered","slug":"SLUG","phase":"diagnose"}
+{"ts":"ISO","event":"worker_started","slug":"SLUG","worker":"diagnose-topdown","phase":"diagnose"}
+{"ts":"ISO","event":"worker_completed","slug":"SLUG","worker":"diagnose-topdown","phase":"diagnose","duration_s":120,"output_summary":"DIAGNOSIS COMPLETE, CONFIDENCE: HIGH"}
+{"ts":"ISO","event":"worker_blocked","slug":"SLUG","worker":"diagnose-history","phase":"diagnose","reason":"no recent commits touching affected files"}
+{"ts":"ISO","event":"challenger_verdict","slug":"SLUG","verdict":"confirmed","winning_diagnosis":"topdown","confidence":"HIGH"}
+{"ts":"ISO","event":"red_tests_written","slug":"SLUG","bug":"bug-name","test_count":5,"all_failing":true}
+{"ts":"ISO","event":"green_fix_applied","slug":"SLUG","bug":"bug-name","files_changed":2,"lines_added":15,"lines_removed":3}
+{"ts":"ISO","event":"breaker_completed","slug":"SLUG","iteration":1,"tests_written":12,"tests_passing":12,"tests_failing":0,"bugs_found":0}
+{"ts":"ISO","event":"breaker_bugs_found","slug":"SLUG","iteration":1,"bugs_found":2,"original_fix_scope":1,"pre_existing":1}
+{"ts":"ISO","event":"fixer_completed","slug":"SLUG","iteration":1,"bugs_fixed":1,"bugs_skipped":1}
+{"ts":"ISO","event":"render_completed","slug":"SLUG","components_tested":3,"tests_passing":8,"tests_failing":0}
+{"ts":"ISO","event":"validation_passed","slug":"SLUG","checks":["tsc","vitest","lint","arch:check"]}
+{"ts":"ISO","event":"validation_failed","slug":"SLUG","check":"vitest","error":"2 tests failed"}
+{"ts":"ISO","event":"merge_success","slug":"SLUG","branch":"fix/SLUG","commit":"abc1234"}
+{"ts":"ISO","event":"merge_conflict","slug":"SLUG","branch":"fix/SLUG"}
+{"ts":"ISO","event":"push","slug":"SLUG","commit":"abc1234"}
+{"ts":"ISO","event":"fix_completed","slug":"SLUG","duration_s":1800,"bugs_fixed":2,"tests_added":17,"breaker_iterations":1}
+{"ts":"ISO","event":"fix_incomplete","slug":"SLUG","phase":"adversarial","reason":"max iterations reached"}
+{"ts":"ISO","event":"worker_error","slug":"SLUG","worker":"green-bug-a","error":"session crashed"}
+```
+
+**How to write a log entry:**
+```bash
+mkdir -p .fix/logs
+echo '{"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","event":"EVENT_NAME","slug":"SLUG","detail":"DETAIL"}' >> .fix/logs/$(date -u +%Y-%m-%d).ndjson
+```
+
+**When to log:**
+- At every phase transition (use immediately after `.fix/launch.sh phase`)
+- When a worker starts or completes
+- When the breaker finds bugs (with counts and scope breakdown)
+- When validation passes or fails
+- When merging succeeds or conflicts
+- When pushing
+- On any error or unexpected condition
+- At fix completion with summary metrics (total duration, tests added, bugs fixed)
+
+**Rules:**
+- One file per UTC day — never grows unmanageably large
+- NDJSON format — easy to parse with `jq`, `python`, or stream tools
+- Include durations, file counts, test counts, and error messages — these are the analytics
+- Log goes in `.fix/logs/` which is on main (not in a worktree) so it persists across worker sessions
+- Add `.fix/logs/` to `.gitignore` — logs are local, not committed
+- Always include `slug` so logs from parallel fixes can be filtered
