@@ -30,6 +30,8 @@ Real Claude Code workflows. Real websites. [Run them yourself →](#-reproduce-i
 
 ## 📦 Get it
 
+### Lite — Browser automation only
+
 **Claude Code** — copy and paste this prompt:
 
 ```
@@ -37,6 +39,26 @@ Install rayo-browser: run `curl --proto '=https' --tlsv1.2 -LsSf https://github.
 ```
 
 That's it. One paste into Claude Code — it installs, configures MCP, updates your CLAUDE.md, and tells you to restart. Both `rayo-mcp` (MCP server) and `rayo-ui` (test runner + dashboard) are installed.
+
+### Full — Browser automation + AI conductors
+
+Install everything: browser automation, TDD fix pipelines, feature development, autonomous code cleanup, and architecture audits. All orchestrated through Claude Code slash commands.
+
+**Claude Code** — copy and paste this prompt:
+
+```
+Install rayo-browser with conductors: First run `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/manurueda/rayo-browser/releases/latest/download/rayo-mcp-installer.sh | sh` then `claude mcp add rayo -- rayo-mcp`. Then clone the rayo-browser repo to a temp dir: `git clone https://github.com/manurueda/rayo-browser.git /tmp/rayo-conductors && /tmp/rayo-conductors/conductors/install.sh && rm -rf /tmp/rayo-conductors`. Then add to my CLAUDE.md a "Browser automation" section that says: always use rayo MCP tools for browser automation instead of Playwright or Puppeteer, prefer rayo_observe with page_map mode over screenshots, use rayo_batch to combine 3+ sequential actions, write E2E tests as YAML in .rayo/tests/, use rayo_visual for visual regression. Also add a "Conductors" section that says: use /fix to launch TDD bug fix pipelines, /feature for end-to-end feature development, /guardian for autonomous cleanup, /architect for architecture audits, /cstatus for a unified dashboard. Tell me to restart Claude Code.
+```
+
+**What this installs:**
+- `rayo-mcp` + `rayo-ui` — browser automation and visual testing
+- `.fix/` — TDD fix conductor (diagnose → red → green → adversarial → E2E → merge)
+- `.feature/` — feature conductor (spec → implement → test → break → UI test → merge)
+- `.guardian/` — persistent cleanup agent (scans for violations, fixes them, runs forever)
+- `.architect/` — architecture auditor (SQLite metrics DB → survey → audit → prescribe)
+- Claude Code skills — `/fix`, `/feature`, `/guardian`, `/architect`, `/cstatus`, `/modular-delivery`, `/plan-ceo`
+
+**Prerequisites:** [agent-deck](https://github.com/manurueda/agent-deck) (`npm i -g agent-deck`) for conductor session management.
 
 **Cursor / Windsurf / any MCP client:**
 
@@ -344,6 +366,106 @@ SLOWEST: goto(wikipedia.org) 453ms
 | `rayo_visual` | **visual testing: capture baselines, compare screenshots, manage baselines** |
 
 **Transparent auth:** Navigate to any authenticated page — ⚡ rayo auto-detects login walls, imports cookies from your real browser, and retries. Zero configuration.
+
+## 🤖 AI Conductors
+
+Conductors are autonomous multi-agent pipelines that orchestrate Claude Code sessions to perform complex software engineering tasks. Each conductor spawns specialized workers (in isolated git worktrees) and manages them through a defined protocol.
+
+### `/fix` — TDD Bug Fix Pipeline
+
+```bash
+/fix "Brand system doesn't update when CEO pastes new palette"
+```
+
+Launches an autonomous pipeline:
+1. **DIAGNOSE** — 3 parallel workers investigate (top-down, bottom-up, git history) + challenger validates
+2. **RED** — write failing tests that prove the bug exists
+3. **GREEN** — implement the minimum fix to make tests pass
+4. **ADVERSARIAL** — breaker writes 20-50 edge cases to harden the fix
+5. **E2E** — browser verification with rayo (for UI bugs)
+6. **MERGE** — tsc + vitest + lint, then merge to main
+
+Multiple fixes can run in parallel on independent bugs.
+
+### `/feature` — Feature Development Pipeline
+
+```bash
+/feature "Add dark mode toggle to settings page"
+```
+
+Full end-to-end feature delivery:
+1. **SPEC** — modular-delivery artifacts (proposal, design, tasks, verification scenarios)
+2. **IMPLEMENT** — one worker per module, sequential
+3. **TEST** — 100% coverage for every new function
+4. **BREAK** — adversarial testing loop until zero bugs
+5. **SCENARIO** — real-world verification against live services
+6. **UI TEST** — browser verification with rayo
+7. **MERGE** — double review pass, then merge and push
+
+### `/guardian` — Persistent Cleanup Agent
+
+```bash
+/guardian
+```
+
+Runs forever. Three worker types:
+- **SCANNER** — finds SRP/DRY/DI violations, test gaps, god components
+- **CLEANER** — fixes one task at a time in isolated worktrees
+- **BUG HUNTER** — writes adversarial tests to find bugs (runs in parallel with cleaners)
+
+Auto-merges to main, auto-pushes. Rescans every 6 tasks. Never stops.
+
+### `/architect` — Strategic Codebase Audit
+
+```bash
+/architect
+```
+
+Read-only audit pipeline:
+1. **COLLECT** — TypeScript compiler API + dependency-cruiser + knip + git history → SQLite DB
+2. **SURVEY** — queries DB, produces structured census
+3. **AUDIT** — diagnoses architectural smells, scores 9 dimensions
+4. **PRESCRIBE** — concrete transformation proposals with execution order
+
+Hands off approved proposals to the Guardian's work queue.
+
+### `/cstatus` — Unified Dashboard
+
+```bash
+/cstatus
+```
+
+Shows all running conductors in one table: fix, feature, guardian, architect.
+
+### How It Works
+
+Conductors use [agent-deck](https://github.com/manurueda/agent-deck) for session management. Each conductor:
+- Spawns worker agents in isolated **git worktrees** (no conflicts)
+- Monitors workers by polling every 60 seconds
+- Auto-responds to worker questions (keeps them moving)
+- Merges, validates, and cleans up after each phase
+- Tracks state in JSON files for monitoring
+
+```
+User → /fix "bug"
+  → launch.sh creates worktree + agent-deck session
+    → Conductor reads conductor-claude.md (its protocol)
+      → Spawns workers from *-prompt.md templates
+        → Workers run in isolated worktrees
+          → Conductor merges results, iterates until clean
+```
+
+### Manual Installation
+
+If you prefer to install conductors manually:
+
+```bash
+git clone https://github.com/manurueda/rayo-browser.git /tmp/rayo-install
+/tmp/rayo-install/conductors/install.sh
+rm -rf /tmp/rayo-install
+```
+
+Or `conductors/install.sh --dry` to preview what it would do.
 
 ## 🏗️ Architecture
 
