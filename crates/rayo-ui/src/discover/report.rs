@@ -45,6 +45,10 @@ fn generate_report(result: &DiscoverResult, pages: &[ExploredPage]) -> String {
         "| Tests generated | {} |\n",
         result.tests_generated
     ));
+    md.push_str(&format!(
+        "| Stories discovered | {} |\n",
+        result.stories_discovered
+    ));
     md.push_str(&format!("| Tests passed | {} |\n", result.tests_passed));
     md.push_str(&format!("| Tests failed | {} |\n", result.tests_failed));
     md.push_str(&format!("| Console errors | {} |\n", result.console_errors));
@@ -94,6 +98,10 @@ fn generate_report(result: &DiscoverResult, pages: &[ExploredPage]) -> String {
     md.push_str(&format!(
         "- Generated: **{}** test files\n",
         result.tests_generated
+    ));
+    md.push_str(&format!(
+        "- Stories discovered: **{}**\n",
+        result.stories_discovered
     ));
     md.push_str(&format!("- Passed: **{}**\n", result.tests_passed));
     md.push_str(&format!("- Failed: **{}**\n", result.tests_failed));
@@ -301,6 +309,7 @@ mod tests {
             routes_explored: 3,
             flows_detected: 2,
             tests_generated: 4,
+            stories_discovered: 0,
             tests_passed: 3,
             tests_failed: 1,
             console_errors: 2,
@@ -347,6 +356,7 @@ mod tests {
             routes_explored: 1,
             flows_detected: 0,
             tests_generated: 1,
+            stories_discovered: 0,
             tests_passed: 1,
             tests_failed: 0,
             console_errors: 0,

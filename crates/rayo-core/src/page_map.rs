@@ -115,9 +115,16 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
             item.label = el.placeholder;
         }
 
-        // Text content (for buttons, links)
+        // Text content (for buttons, links, and ARIA role equivalents)
         const text = el.textContent?.trim();
-        if (text && text.length < 100 && (el.tagName === 'BUTTON' || el.tagName === 'A')) {
+        const role = el.getAttribute('role');
+        if (text && text.length < 100 && (
+            el.tagName === 'BUTTON' ||
+            el.tagName === 'A' ||
+            role === 'button' ||
+            role === 'link' ||
+            role === 'tab'
+        )) {
             item.text = text;
         }
 
@@ -141,7 +148,6 @@ pub const EXTRACT_PAGE_MAP_JS: &str = r#"
         }
 
         // Role
-        const role = el.getAttribute('role');
         if (role) item.role = role;
 
         // Href (links) — truncate long URLs

@@ -110,6 +110,45 @@ steps:
     }
 
     #[test]
+    fn parse_wait_text_and_network_mock() {
+        let yaml = r##"
+name: Network Wait Flow
+setup:
+  - network_mock:
+      url_pattern: "*/api/users*"
+      response:
+        body: '{"users":[{"name":"Ada"}]}'
+        content_type: application/json
+steps:
+  - navigate: /users
+    wait:
+      text: Ada
+      element_text:
+        selector: "#users"
+        contains: Ada
+      timeout_ms: 4000
+    assert:
+      - network_called:
+          url: /api/users
+          method: GET
+"##;
+        let suite: TestSuite = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(suite.setup.len(), 1);
+        let mock = suite.setup[0].network_mock.as_ref().unwrap();
+        assert_eq!(mock.url_pattern, "*/api/users*");
+        assert_eq!(
+            mock.response.content_type.as_deref(),
+            Some("application/json")
+        );
+
+        let wait = suite.steps[0].wait.as_ref().unwrap();
+        assert_eq!(wait.text.as_deref(), Some("Ada"));
+        let element_text = wait.element_text.as_ref().unwrap();
+        assert_eq!(element_text.selector, "#users");
+        assert_eq!(element_text.contains, "Ada");
+    }
+
+    #[test]
     fn parse_config_with_base_url() {
         let yaml = "base_url: http://localhost:3000";
         let config: RayoConfig = serde_yaml::from_str(yaml).unwrap();

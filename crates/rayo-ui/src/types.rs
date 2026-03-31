@@ -74,6 +74,9 @@ pub struct TestStep {
     /// Import cookies.
     #[serde(default)]
     pub cookie: Option<CookieAction>,
+    /// Mock network responses for subsequent requests.
+    #[serde(default)]
+    pub network_mock: Option<NetworkMockAction>,
 
     // --- Assertions (checked after action completes) ---
     #[serde(default)]
@@ -133,10 +136,21 @@ pub struct ScrollAction {
 pub struct WaitAction {
     #[serde(default)]
     pub selector: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub element_text: Option<ElementTextWait>,
     #[serde(default = "default_timeout")]
     pub timeout_ms: u64,
     #[serde(default)]
     pub network_idle: Option<bool>,
+}
+
+/// Wait until a specific element contains text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElementTextWait {
+    pub selector: String,
+    pub contains: String,
 }
 
 fn default_timeout() -> u64 {
@@ -167,6 +181,29 @@ pub struct CookieAction {
     pub browser: Option<String>,
     #[serde(default)]
     pub domain: Option<String>,
+}
+
+/// Network mock action in a step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkMockAction {
+    pub url_pattern: String,
+    pub response: MockResponseConfig,
+}
+
+/// Mock response configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MockResponseConfig {
+    #[serde(default = "default_mock_status")]
+    pub status: u16,
+    pub body: String,
+    #[serde(default)]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+}
+
+fn default_mock_status() -> u16 {
+    200
 }
 
 /// An assertion to check after a step.

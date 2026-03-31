@@ -625,7 +625,14 @@ impl RayoPage {
         }}
 
         const text = el.textContent?.trim();
-        if (text && text.length < 100 && (el.tagName === 'BUTTON' || el.tagName === 'A')) {{
+        const role = el.getAttribute('role');
+        if (text && text.length < 100 && (
+            el.tagName === 'BUTTON' ||
+            el.tagName === 'A' ||
+            role === 'button' ||
+            role === 'link' ||
+            role === 'tab'
+        )) {{
             item.text = text;
         }}
 
@@ -643,7 +650,6 @@ impl RayoPage {
             }}
         }}
 
-        const role = el.getAttribute('role');
         if (role) item.role = role;
         if (el.href) item.href = el.href.length > 120 ? el.href.slice(0, 120) : el.href;
 

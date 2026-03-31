@@ -155,7 +155,7 @@ impl NetworkInterceptor {
 
     /// Find a mock rule matching this request.
     pub fn find_mock(&self, url: &str, resource_type: Option<&str>) -> Option<&MockRule> {
-        self.mock_rules.iter().find(|rule| {
+        self.mock_rules.iter().rev().find(|rule| {
             let url_match = url_matches(url, &rule.url_pattern);
             let type_match = match (&rule.resource_type, resource_type) {
                 (Some(rt), Some(actual)) => rt.eq_ignore_ascii_case(actual),
@@ -269,6 +269,31 @@ mod tests {
         let mock = interceptor.find_mock("https://example.com/api/users?page=1", None);
         assert!(mock.is_some());
         assert_eq!(mock.unwrap().status, 200);
+    }
+
+    #[test]
+    fn test_latest_mock_rule_wins() {
+        let mut interceptor = NetworkInterceptor::new();
+        interceptor.add_mock_rule(MockRule {
+            url_pattern: "*/api/users*".into(),
+            status: 200,
+            body: "first".into(),
+            headers: vec![],
+            resource_type: None,
+        });
+        interceptor.add_mock_rule(MockRule {
+            url_pattern: "*/api/users*".into(),
+            status: 503,
+            body: "second".into(),
+            headers: vec![],
+            resource_type: None,
+        });
+
+        let mock = interceptor
+            .find_mock("https://example.com/api/users?page=1", None)
+            .expect("latest mock should match");
+        assert_eq!(mock.status, 503);
+        assert_eq!(mock.body, "second");
     }
 
     #[test]

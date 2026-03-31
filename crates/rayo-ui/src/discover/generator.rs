@@ -122,6 +122,7 @@ fn flow_step_to_test_step(step: &FlowStep) -> TestStep {
         wait: None,
         batch: None,
         cookie: None,
+        network_mock: None,
         assert: None,
     };
 
@@ -209,6 +210,7 @@ fn generate_smoke_suite(pages: &[ExploredPage], base_url: &str) -> TestSuite {
             wait: None,
             batch: None,
             cookie: None,
+            network_mock: None,
             assert: Some(vec![Assertion {
                 page_map_contains: Some(PageMapAssertion {
                     selector: None,
@@ -237,6 +239,7 @@ fn generate_smoke_suite(pages: &[ExploredPage], base_url: &str) -> TestSuite {
             wait: None,
             batch: None,
             cookie: None,
+            network_mock: None,
             assert: Some(vec![Assertion {
                 page_map_contains: Some(PageMapAssertion {
                     selector: None,

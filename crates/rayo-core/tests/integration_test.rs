@@ -425,6 +425,92 @@ async fn test_element_state_detection() {
     eprintln!("  PASS: test_element_state_detection");
 }
 
+/// Test that ARIA role equivalents populate item.text in both full and scoped page maps.
+#[tokio::test]
+async fn test_page_map_role_text_extraction() {
+    if !chrome_available() {
+        eprintln!("SKIP: Chrome not available");
+        return;
+    }
+
+    let browser = RayoBrowser::launch()
+        .await
+        .expect("Failed to launch browser");
+    let page = browser.new_page().await.expect("Failed to create page");
+
+    page.goto("about:blank").await.unwrap();
+
+    let html = r#"
+        <main id="scope">
+            <div role="button" id="role-button">Create project</div>
+            <span role="link" id="role-link">Open docs</span>
+            <div role="tab" id="role-tab">Settings</div>
+        </main>
+        <div role="button" id="outside-role-button">Outside action</div>
+    "#;
+    let script = format!(
+        "document.title = 'Role Text Extraction'; document.body.innerHTML = {};",
+        serde_json::to_string(html).unwrap()
+    );
+    page.evaluate(&script).await.unwrap();
+
+    let map = page.page_map(None).await.unwrap();
+
+    let role_button = map
+        .interactive
+        .iter()
+        .find(|e| e.selector == "#role-button")
+        .expect("full page map should include role button");
+    assert_eq!(role_button.role.as_deref(), Some("button"));
+    assert_eq!(role_button.text.as_deref(), Some("Create project"));
+
+    let role_link = map
+        .interactive
+        .iter()
+        .find(|e| e.selector == "#role-link")
+        .expect("full page map should include role link");
+    assert_eq!(role_link.role.as_deref(), Some("link"));
+    assert_eq!(role_link.text.as_deref(), Some("Open docs"));
+
+    let role_tab = map
+        .interactive
+        .iter()
+        .find(|e| e.selector == "#role-tab")
+        .expect("full page map should include role tab");
+    assert_eq!(role_tab.role.as_deref(), Some("tab"));
+    assert_eq!(role_tab.text.as_deref(), Some("Settings"));
+
+    let scoped_map = page.page_map(Some("#scope")).await.unwrap();
+    assert_eq!(
+        scoped_map.interactive.len(),
+        3,
+        "scoped page map should only include in-scope role elements"
+    );
+    assert!(
+        scoped_map
+            .interactive
+            .iter()
+            .all(|e| e.selector != "#outside-role-button"),
+        "scoped page map should exclude out-of-scope elements"
+    );
+
+    for (selector, expected_role, expected_text) in [
+        ("#role-button", "button", "Create project"),
+        ("#role-link", "link", "Open docs"),
+        ("#role-tab", "tab", "Settings"),
+    ] {
+        let scoped = scoped_map
+            .interactive
+            .iter()
+            .find(|e| e.selector == selector)
+            .unwrap_or_else(|| panic!("scoped page map should include {selector}"));
+        assert_eq!(scoped.role.as_deref(), Some(expected_role));
+        assert_eq!(scoped.text.as_deref(), Some(expected_text));
+    }
+
+    eprintln!("  PASS: test_page_map_role_text_extraction");
+}
+
 /// Test that clicking a non-existent element returns RayoError::ElementNotFound.
 #[tokio::test]
 async fn test_click_nonexistent_element() {

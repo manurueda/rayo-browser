@@ -4,12 +4,14 @@ use crate::error::TestError;
 use crate::result::{AssertionResult, StepResult, SuiteResult};
 use crate::types::*;
 use rayo_core::batch::{ActionTarget, BatchAction};
+use rayo_core::network::{CapturedRequest, MockRule, NetworkInterceptor};
 use rayo_core::{RayoBrowser, RayoPage, ViewportConfig};
 use rayo_profiler::Profiler;
 use rayo_visual::BaselineManager;
 use std::path::PathBuf;
-use std::time::Instant;
-use tokio::sync::broadcast;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, broadcast};
 
 /// Event emitted during test execution (for live UI updates).
 #[derive(Debug, Clone, serde::Serialize)]
@@ -39,6 +41,193 @@ impl Default for RunnerConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RunnerRequirements {
+    pub network_capture: bool,
+    pub network_interception: bool,
+}
+
+impl RunnerRequirements {
+    pub(crate) fn merge(&mut self, other: Self) {
+        self.network_capture |= other.network_capture;
+        self.network_interception |= other.network_interception;
+    }
+
+    fn is_enabled(self) -> bool {
+        self.network_capture || self.network_interception
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NetworkMode {
+    Disabled,
+    Monitoring,
+    Interception,
+}
+
+pub(crate) struct RunnerContext {
+    network: Option<Arc<Mutex<NetworkInterceptor>>>,
+    network_mode: NetworkMode,
+    network_ready: bool,
+}
+
+impl RunnerContext {
+    pub(crate) fn new(requirements: RunnerRequirements) -> Self {
+        let network_mode = if requirements.network_interception {
+            NetworkMode::Interception
+        } else if requirements.network_capture {
+            NetworkMode::Monitoring
+        } else {
+            NetworkMode::Disabled
+        };
+
+        Self {
+            network: requirements
+                .is_enabled()
+                .then(|| Arc::new(Mutex::new(NetworkInterceptor::new()))),
+            network_mode,
+            network_ready: false,
+        }
+    }
+
+    async fn ensure_network_ready(&mut self, page: &RayoPage) -> Result<(), TestError> {
+        if self.network_ready {
+            return Ok(());
+        }
+
+        let Some(network) = &self.network else {
+            return Ok(());
+        };
+
+        match self.network_mode {
+            NetworkMode::Disabled => return Ok(()),
+            NetworkMode::Monitoring => page.enable_network_monitoring(Arc::clone(network)).await?,
+            NetworkMode::Interception => {
+                page.enable_network_interception(Arc::clone(network))
+                    .await?
+            }
+        }
+
+        self.network_ready = true;
+        Ok(())
+    }
+
+    async fn begin_scope(&mut self, page: &RayoPage) -> Result<(), TestError> {
+        self.ensure_network_ready(page).await?;
+
+        if let Some(network) = &self.network {
+            let mut network = network.lock().await;
+            network.clear_rules();
+            network.start_capture();
+        }
+
+        Ok(())
+    }
+
+    async fn end_scope(&self) {
+        if let Some(network) = &self.network {
+            let mut network = network.lock().await;
+            network.stop_capture();
+            network.clear_rules();
+        }
+    }
+
+    async fn add_mock_rule(
+        &mut self,
+        page: &RayoPage,
+        action: &NetworkMockAction,
+    ) -> Result<(), TestError> {
+        if self.network_mode == NetworkMode::Disabled {
+            self.network_mode = NetworkMode::Interception;
+            self.network = Some(Arc::new(Mutex::new(NetworkInterceptor::new())));
+        } else if self.network_mode == NetworkMode::Monitoring && !self.network_ready {
+            self.network_mode = NetworkMode::Interception;
+        }
+
+        self.ensure_network_ready(page).await?;
+
+        let Some(network) = &self.network else {
+            return Err(TestError::Other(
+                "network mock requested but no network interceptor is available".into(),
+            ));
+        };
+
+        let mut headers: Vec<(String, String)> = action
+            .response
+            .headers
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        if let Some(content_type) = &action.response.content_type {
+            let has_content_type = headers
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
+            if !has_content_type {
+                headers.push(("content-type".into(), content_type.clone()));
+            }
+        }
+
+        network.lock().await.add_mock_rule(MockRule {
+            url_pattern: action.url_pattern.clone(),
+            status: action.response.status,
+            body: action.response.body.clone(),
+            headers,
+            resource_type: None,
+        });
+
+        Ok(())
+    }
+
+    async fn captured_requests(&self) -> Vec<CapturedRequest> {
+        let Some(network) = &self.network else {
+            return Vec::new();
+        };
+
+        network.lock().await.captured_requests().to_vec()
+    }
+}
+
+pub(crate) fn suite_requirements(suite: &TestSuite) -> RunnerRequirements {
+    let mut requirements = RunnerRequirements::default();
+
+    for step in suite
+        .setup
+        .iter()
+        .chain(suite.steps.iter())
+        .chain(suite.teardown.iter())
+    {
+        requirements.merge(step_requirements(step));
+    }
+
+    requirements
+}
+
+fn step_requirements(step: &TestStep) -> RunnerRequirements {
+    let mut requirements = RunnerRequirements::default();
+
+    if step.network_mock.is_some() {
+        requirements.network_capture = true;
+        requirements.network_interception = true;
+    }
+
+    if let Some(assertions) = &step.assert {
+        for assertion in assertions {
+            requirements.merge(assertion_requirements(assertion));
+        }
+    }
+
+    requirements
+}
+
+pub(crate) fn assertion_requirements(assertion: &Assertion) -> RunnerRequirements {
+    RunnerRequirements {
+        network_capture: assertion.network_called.is_some(),
+        network_interception: false,
+    }
+}
+
 /// Execute a test suite against a browser instance.
 pub async fn run_suite(
     suite: &TestSuite,
@@ -64,6 +253,7 @@ pub async fn run_suite(
     let page = browser.new_page().await?;
 
     let baseline_mgr = BaselineManager::new(config.baselines_dir.clone());
+    let mut context = RunnerContext::new(suite_requirements(suite));
 
     let total_steps = suite.setup.len() + suite.steps.len() + suite.teardown.len();
 
@@ -74,47 +264,25 @@ pub async fn run_suite(
         });
     }
 
-    let mut step_results = Vec::new();
-    let mut step_index = 0;
-    let mut had_failure = false;
-
     let base_url = config.base_url.as_deref();
-
-    // Run setup steps
-    for step in &suite.setup {
-        let result = run_step(&page, step, &baseline_mgr, &event_tx, step_index, base_url).await;
-        if !result.pass {
-            had_failure = true;
+    let step_results = match execute_suite_on_page(
+        &page,
+        suite,
+        &baseline_mgr,
+        &event_tx,
+        base_url,
+        config.abort_on_failure,
+        &mut context,
+    )
+    .await
+    {
+        Ok(results) => results,
+        Err(err) => {
+            drop(page);
+            browser.close().await;
+            return Err(err);
         }
-        step_results.push(result);
-        step_index += 1;
-        if had_failure && config.abort_on_failure {
-            break;
-        }
-    }
-
-    // Run test steps
-    if !had_failure || !config.abort_on_failure {
-        for step in &suite.steps {
-            let result =
-                run_step(&page, step, &baseline_mgr, &event_tx, step_index, base_url).await;
-            if !result.pass {
-                had_failure = true;
-            }
-            step_results.push(result);
-            step_index += 1;
-            if had_failure && config.abort_on_failure {
-                break;
-            }
-        }
-    }
-
-    // Run teardown steps (always, even on failure)
-    for step in &suite.teardown {
-        let result = run_step(&page, step, &baseline_mgr, &event_tx, step_index, base_url).await;
-        step_results.push(result);
-        step_index += 1;
-    }
+    };
 
     let passed = step_results.iter().filter(|r| r.pass).count();
     let failed = step_results.iter().filter(|r| !r.pass).count();
@@ -143,13 +311,93 @@ pub async fn run_suite(
     Ok(suite_result)
 }
 
-async fn run_step(
+pub(crate) async fn execute_suite_on_page(
+    page: &RayoPage,
+    suite: &TestSuite,
+    baseline_mgr: &BaselineManager,
+    event_tx: &Option<broadcast::Sender<TestEvent>>,
+    base_url: Option<&str>,
+    abort_on_failure: bool,
+    context: &mut RunnerContext,
+) -> Result<Vec<StepResult>, TestError> {
+    context.begin_scope(page).await?;
+
+    let mut step_results = Vec::new();
+    let mut step_index = 0;
+    let mut had_failure = false;
+
+    for step in &suite.setup {
+        let result = run_step(
+            page,
+            step,
+            baseline_mgr,
+            event_tx,
+            step_index,
+            base_url,
+            context,
+        )
+        .await;
+        if !result.pass {
+            had_failure = true;
+        }
+        step_results.push(result);
+        step_index += 1;
+        if had_failure && abort_on_failure {
+            break;
+        }
+    }
+
+    if !had_failure || !abort_on_failure {
+        for step in &suite.steps {
+            let result = run_step(
+                page,
+                step,
+                baseline_mgr,
+                event_tx,
+                step_index,
+                base_url,
+                context,
+            )
+            .await;
+            if !result.pass {
+                had_failure = true;
+            }
+            step_results.push(result);
+            step_index += 1;
+            if had_failure && abort_on_failure {
+                break;
+            }
+        }
+    }
+
+    for step in &suite.teardown {
+        let result = run_step(
+            page,
+            step,
+            baseline_mgr,
+            event_tx,
+            step_index,
+            base_url,
+            context,
+        )
+        .await;
+        step_results.push(result);
+        step_index += 1;
+    }
+
+    context.end_scope().await;
+
+    Ok(step_results)
+}
+
+pub(crate) async fn run_step(
     page: &RayoPage,
     step: &TestStep,
     baseline_mgr: &BaselineManager,
     event_tx: &Option<broadcast::Sender<TestEvent>>,
     index: usize,
     base_url: Option<&str>,
+    context: &mut RunnerContext,
 ) -> StepResult {
     let step_name = step
         .name
@@ -166,7 +414,7 @@ async fn run_step(
 
     // Execute the action
     let action_name = step_action_name(step);
-    let action_result = execute_action(page, step, base_url).await;
+    let action_result = execute_action(page, step, base_url, context).await;
 
     let mut result = match action_result {
         Ok(()) => StepResult {
@@ -194,7 +442,7 @@ async fn run_step(
         && let Some(assertions) = &step.assert
     {
         for assertion in assertions {
-            let assertion_result = check_assertion(page, assertion, baseline_mgr).await;
+            let assertion_result = check_assertion(page, assertion, baseline_mgr, context).await;
             if !assertion_result.pass {
                 result.pass = false;
                 // Capture page map for debugging failed assertions
@@ -241,6 +489,8 @@ fn step_action_name(step: &TestStep) -> String {
         "batch".into()
     } else if step.cookie.is_some() {
         "cookie".into()
+    } else if step.network_mock.is_some() {
+        "network_mock".into()
     } else {
         "assert_only".into()
     }
@@ -270,6 +520,7 @@ async fn execute_action(
     page: &RayoPage,
     step: &TestStep,
     base_url: Option<&str>,
+    context: &mut RunnerContext,
 ) -> Result<(), TestError> {
     if let Some(url) = &step.navigate {
         let resolved = resolve_url(url, base_url);
@@ -291,7 +542,20 @@ async fn execute_action(
     } else if let Some(action) = &step.wait {
         if let Some(sel) = &action.selector {
             page.wait_for_selector(sel, action.timeout_ms, true).await?;
-        } else if action.network_idle.unwrap_or(false) {
+        }
+        if let Some(text) = &action.text {
+            wait_for_page_text(page, text, action.timeout_ms).await?;
+        }
+        if let Some(element_text) = &action.element_text {
+            wait_for_element_text(
+                page,
+                &element_text.selector,
+                &element_text.contains,
+                action.timeout_ms,
+            )
+            .await?;
+        }
+        if action.network_idle.unwrap_or(false) {
             page.wait_for_network_idle(500, action.timeout_ms).await?;
         }
     } else if let Some(actions) = &step.batch {
@@ -300,9 +564,90 @@ async fn execute_action(
             .filter_map(|a| to_batch_action(a, base_url))
             .collect();
         page.execute_batch(batch_actions, false).await?;
+    } else if let Some(action) = &step.network_mock {
+        context.add_mock_rule(page, action).await?;
     }
     // assert_only steps have no action — that's valid
     Ok(())
+}
+
+async fn wait_for_page_text(
+    page: &RayoPage,
+    expected: &str,
+    timeout_ms: u64,
+) -> Result<(), TestError> {
+    wait_for_text_condition(page, None, expected, timeout_ms).await
+}
+
+async fn wait_for_element_text(
+    page: &RayoPage,
+    selector: &str,
+    expected: &str,
+    timeout_ms: u64,
+) -> Result<(), TestError> {
+    wait_for_text_condition(page, Some(selector), expected, timeout_ms).await
+}
+
+async fn wait_for_text_condition(
+    page: &RayoPage,
+    selector: Option<&str>,
+    expected: &str,
+    timeout_ms: u64,
+) -> Result<(), TestError> {
+    let start = Instant::now();
+    let timeout = Duration::from_millis(timeout_ms);
+
+    loop {
+        let text = page.text_content(selector, 200).await?;
+        if text_contains_case_insensitive(&text, expected) {
+            return Ok(());
+        }
+
+        if start.elapsed() >= timeout {
+            return Err(TestError::Other(format_wait_timeout(
+                selector, expected, timeout_ms, &text,
+            )));
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+fn text_contains_case_insensitive(haystack: &str, needle: &str) -> bool {
+    haystack
+        .to_ascii_lowercase()
+        .contains(&needle.to_ascii_lowercase())
+}
+
+fn format_wait_timeout(
+    selector: Option<&str>,
+    expected: &str,
+    timeout_ms: u64,
+    observed: &str,
+) -> String {
+    let observed = truncate_text_for_message(observed);
+    match selector {
+        Some(selector) => format!(
+            "Timed out after {timeout_ms}ms waiting for selector '{selector}' to contain text '{expected}'. Last observed text: {observed}"
+        ),
+        None => format!(
+            "Timed out after {timeout_ms}ms waiting for text '{expected}' to appear. Last page text: {observed}"
+        ),
+    }
+}
+
+fn truncate_text_for_message(text: &str) -> String {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return "(empty)".into();
+    }
+
+    const MAX_LEN: usize = 160;
+    if normalized.len() <= MAX_LEN {
+        normalized
+    } else {
+        format!("{}...", &normalized[..MAX_LEN])
+    }
 }
 
 fn to_batch_action(a: &BatchStepAction, base_url: Option<&str>) -> Option<BatchAction> {
@@ -343,10 +688,11 @@ fn to_batch_action(a: &BatchStepAction, base_url: Option<&str>) -> Option<BatchA
     }
 }
 
-async fn check_assertion(
+pub(crate) async fn check_assertion(
     page: &RayoPage,
     assertion: &Assertion,
     baseline_mgr: &BaselineManager,
+    context: &RunnerContext,
 ) -> AssertionResult {
     if let Some(criteria) = &assertion.page_map_contains {
         return check_page_map(page, criteria).await;
@@ -357,14 +703,8 @@ async fn check_assertion(
     if let Some(config) = &assertion.screenshot {
         return check_screenshot(page, config, baseline_mgr).await;
     }
-    if assertion.network_called.is_some() {
-        return AssertionResult {
-            assertion_type: "network_called".into(),
-            pass: true,
-            message: Some("network assertions not yet implemented".into()),
-            diff_report: None,
-            new_baseline: false,
-        };
+    if let Some(expected) = &assertion.network_called {
+        return check_network_called(expected, context).await;
     }
     AssertionResult {
         assertion_type: "unknown".into(),
@@ -372,6 +712,110 @@ async fn check_assertion(
         message: Some("No assertion type specified".into()),
         diff_report: None,
         new_baseline: false,
+    }
+}
+
+async fn check_network_called(
+    expected: &NetworkAssertion,
+    context: &RunnerContext,
+) -> AssertionResult {
+    let requests = context.captured_requests().await;
+    let matches: Vec<&CapturedRequest> = requests
+        .iter()
+        .filter(|request| network_request_matches(request, expected))
+        .collect();
+
+    let pass = !matches.is_empty();
+    let method_hint = expected
+        .method
+        .as_deref()
+        .map(|method| format!(" and method '{method}'"))
+        .unwrap_or_default();
+
+    AssertionResult {
+        assertion_type: "network_called".into(),
+        pass,
+        message: if pass {
+            None
+        } else if requests.is_empty() {
+            Some("No network requests were captured in this suite scope".into())
+        } else {
+            Some(format_network_assertion_failure(
+                expected,
+                &requests,
+                &method_hint,
+            ))
+        },
+        diff_report: None,
+        new_baseline: false,
+    }
+}
+
+fn format_network_assertion_failure(
+    expected: &NetworkAssertion,
+    requests: &[CapturedRequest],
+    method_hint: &str,
+) -> String {
+    let preview = requests
+        .iter()
+        .take(5)
+        .map(|request| format!("{} {}", request.method, request.url))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "No captured request matched url '{}'{} ({} requests captured). Captured requests: {}",
+        expected.url,
+        method_hint,
+        requests.len(),
+        preview
+    )
+}
+
+fn network_request_matches(request: &CapturedRequest, expected: &NetworkAssertion) -> bool {
+    let method_matches = expected
+        .method
+        .as_deref()
+        .is_none_or(|method| request.method.eq_ignore_ascii_case(method));
+
+    method_matches && url_pattern_matches(&request.url, &expected.url)
+}
+
+fn url_pattern_matches(url: &str, pattern: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+
+    if pattern.contains('*') {
+        let parts: Vec<&str> = pattern.split('*').collect();
+        let mut pos = 0;
+
+        for (index, part) in parts.iter().enumerate() {
+            if part.is_empty() {
+                continue;
+            }
+
+            match url[pos..].find(part) {
+                Some(found) => {
+                    if index == 0 && found != 0 {
+                        return false;
+                    }
+                    pos += found + part.len();
+                }
+                None => return false,
+            }
+        }
+
+        if !pattern.ends_with('*')
+            && let Some(last) = parts.last()
+            && !last.is_empty()
+        {
+            return url.ends_with(last);
+        }
+
+        true
+    } else {
+        url.contains(pattern)
     }
 }
 
@@ -565,6 +1009,23 @@ async fn check_screenshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rayo_core::RayoBrowser;
+
+    async fn launch_test_page() -> Option<(RayoBrowser, RayoPage)> {
+        let browser = match RayoBrowser::launch().await {
+            Ok(browser) => browser,
+            Err(_) => {
+                eprintln!("SKIP: Chrome not available");
+                return None;
+            }
+        };
+
+        let page = browser.new_page().await.expect("Failed to create page");
+        page.goto("about:blank")
+            .await
+            .expect("Failed to load blank page");
+        Some((browser, page))
+    }
 
     #[test]
     fn resolve_url_absolute_unchanged() {
@@ -617,5 +1078,106 @@ mod tests {
             resolve_url("https://example.com", None),
             "https://example.com"
         );
+    }
+
+    #[test]
+    fn text_wait_matching_is_case_insensitive() {
+        assert!(text_contains_case_insensitive(
+            "Agent Is Building",
+            "is building"
+        ));
+        assert!(!text_contains_case_insensitive("Agent is idle", "building"));
+    }
+
+    #[test]
+    fn format_wait_timeout_includes_last_observed_text() {
+        let message = format_wait_timeout(
+            None,
+            "is building",
+            1500,
+            "Agent is planning the work right now",
+        );
+        assert!(message.contains("Timed out after 1500ms"));
+        assert!(message.contains("is building"));
+        assert!(message.contains("Agent is planning the work right now"));
+    }
+
+    #[test]
+    fn network_request_matches_method_and_url_pattern() {
+        let request = CapturedRequest {
+            url: "https://example.com/api/users?page=1".into(),
+            method: "POST".into(),
+            resource_type: "Fetch".into(),
+            status: Some(200),
+            headers: Vec::new(),
+            timestamp_ms: 0.0,
+            request_id: None,
+        };
+        let assertion = NetworkAssertion {
+            url: "*/api/users*".into(),
+            method: Some("post".into()),
+        };
+
+        assert!(network_request_matches(&request, &assertion));
+    }
+
+    #[test]
+    fn network_request_does_not_match_wrong_method() {
+        let request = CapturedRequest {
+            url: "https://example.com/api/users".into(),
+            method: "GET".into(),
+            resource_type: "Fetch".into(),
+            status: Some(200),
+            headers: Vec::new(),
+            timestamp_ms: 0.0,
+            request_id: None,
+        };
+        let assertion = NetworkAssertion {
+            url: "/api/users".into(),
+            method: Some("POST".into()),
+        };
+
+        assert!(!network_request_matches(&request, &assertion));
+    }
+
+    #[tokio::test]
+    async fn wait_for_page_text_matches_case_insensitively() {
+        let Some((browser, page)) = launch_test_page().await else {
+            return;
+        };
+
+        page.evaluate(
+            "setTimeout(() => { document.body.innerHTML = '<div>Agent Is Building</div>'; }, 100);",
+        )
+        .await
+        .expect("Failed to schedule page update");
+
+        wait_for_page_text(&page, "is building", 3000)
+            .await
+            .expect("wait.text should resolve");
+
+        browser.close().await;
+    }
+
+    #[tokio::test]
+    async fn wait_for_element_text_timeout_reports_last_observed_text() {
+        let Some((browser, page)) = launch_test_page().await else {
+            return;
+        };
+
+        page.evaluate("document.body.innerHTML = '<div id=\"status\">Waiting for response</div>';")
+            .await
+            .expect("Failed to seed page");
+
+        let err = wait_for_element_text(&page, "#status", "ready", 250)
+            .await
+            .expect_err("wait.element_text should time out");
+
+        let message = err.to_string();
+        assert!(message.contains("Timed out after 250ms"));
+        assert!(message.contains("#status"));
+        assert!(message.contains("Waiting for response"));
+
+        browser.close().await;
     }
 }
