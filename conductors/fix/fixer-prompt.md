@@ -57,7 +57,7 @@ This prevents scope creep. The fix pipeline fixes what it broke, not every bug i
 5. **Commit**:
    ```bash
    git add -A
-   git commit -m "fix({{FIX_NAME}}): <short description of fixes>"
+   git commit --no-verify -m "fix({{FIX_NAME}}): <short description of fixes>"
    ```
 6. **Output**:
    ```

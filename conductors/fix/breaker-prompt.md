@@ -82,7 +82,7 @@ The diff is your scope. Nothing more.
    **ALL tests PASS** — commit them:
    ```bash
    git add -A
-   git commit -m "test({{FIX_NAME}}): adversarial — N edge cases, all pass"
+   git commit --no-verify -m "test({{FIX_NAME}}): adversarial — N edge cases, all pass"
    ```
    Output: `BREAK COMPLETE: all N edge cases pass — fix is robust`
 

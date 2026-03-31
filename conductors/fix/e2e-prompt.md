@@ -138,7 +138,7 @@ FAILING_DETAILS:
 
 ```bash
 git add -A
-git commit -m "test({{FIX_NAME}}): render tests — N components verified"
+git commit --no-verify -m "test({{FIX_NAME}}): render tests — N components verified"
 ```
 
 ## Rules

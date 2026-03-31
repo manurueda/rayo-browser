@@ -364,6 +364,19 @@ STATEEOF
         exit 1
       }
 
+      # Sync prompt files from main to ensure worktree has latest conductor prompts
+      # Worktrees snapshot code at branch creation time — prompts may be stale if
+      # the conductor was updated after the branch was created.
+      echo "Syncing conductor prompts from main..."
+      for prompt_file in "$FIX_DIR"/*.md "$FIX_DIR"/*.sh; do
+        [ -f "$prompt_file" ] || continue
+        BASENAME="$(basename "$prompt_file")"
+        # Extract the latest version from main (not the worktree's snapshot)
+        MAIN_CONTENT=$(cd "$PROJECT_DIR" && git show "main:.fix/$BASENAME" 2>/dev/null) || continue
+        echo "$MAIN_CONTENT" > "$WORKTREE_DIR/.fix/$BASENAME"
+      done
+      chmod +x "$WORKTREE_DIR/.fix/launch.sh" "$WORKTREE_DIR/.fix/resolve-status.sh" 2>/dev/null || true
+
       echo "Launching conductor v${FIX_VERSION}: $SESSION (profile: $PROFILE, branch: $BRANCH)..."
       echo "  Worktree: $WORKTREE_DIR"
       CONDUCTOR_PROMPT=$(cat << PROMPTEOF

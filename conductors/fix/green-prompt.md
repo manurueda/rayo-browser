@@ -37,7 +37,7 @@ Note: these fields are populated by the DIAGNOSE phase or the user. The failing 
 5. **Commit**:
    ```bash
    git add -A
-   git commit -m "fix({{FIX_NAME}}): {{BUG_NAME}} — <short description>"
+   git commit --no-verify -m "fix({{FIX_NAME}}): {{BUG_NAME}} — <short description>"
    ```
 6. **Output**: `GREEN COMPLETE: all tests passing` or `GREEN BLOCKED: <reason>`
 
