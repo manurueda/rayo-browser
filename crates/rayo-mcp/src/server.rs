@@ -341,11 +341,11 @@ impl RayoServer {
             ),
             Tool::new(
                 "rayo_interact",
-                "Interact with an element. Use id from page_map or CSS selector. Actions: click, hover (mouse move without click — triggers dropdowns/tooltips), type (requires value), press (requires value — key name like \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\"), select (requires value), scroll. Optional tab_id.",
+                "Interact with an element. Use id from page_map or CSS selector. Actions: click, dblclick (double-click — triggers onDoubleClick handlers), hover (mouse move without click — triggers dropdowns/tooltips), type (requires value), press (requires value — key name like \"Enter\", \"Tab\", \"Escape\", \"ArrowDown\"), select (requires value), scroll. Optional tab_id.",
                 json_schema(json!({
                     "type": "object",
                     "properties": {
-                        "action": { "type": "string", "enum": ["click", "hover", "type", "press", "select", "scroll"] },
+                        "action": { "type": "string", "enum": ["click", "dblclick", "hover", "type", "press", "select", "scroll"] },
                         "id": { "type": "integer", "description": "Element ID from page_map" },
                         "selector": { "type": "string", "description": "CSS selector (alternative to id)" },
                         "value": { "type": "string", "description": "Text to type or option to select" },
@@ -365,7 +365,7 @@ impl RayoServer {
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "action": { "type": "string", "enum": ["click", "hover", "type", "press", "select", "goto", "screenshot", "wait_for", "scroll"] },
+                                    "action": { "type": "string", "enum": ["click", "dblclick", "hover", "type", "press", "select", "goto", "screenshot", "wait_for", "scroll"] },
                                     "id": { "type": "integer" },
                                     "selector": { "type": "string" },
                                     "value": { "type": "string" },

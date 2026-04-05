@@ -293,6 +293,10 @@ pub async fn handle_interact(
             page.click(selector, id).await.map_err(internal_err)?;
             "Clicked".to_string()
         }
+        "dblclick" => {
+            page.dblclick(selector, id).await.map_err(internal_err)?;
+            "Double-clicked".to_string()
+        }
         "hover" => {
             page.hover(selector, id).await.map_err(internal_err)?;
             "Hovered".to_string()
