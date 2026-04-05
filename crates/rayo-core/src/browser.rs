@@ -957,6 +957,55 @@ impl RayoPage {
         Ok(())
     }
 
+    /// Double-click an element by selector or page map ID.
+    /// Dispatches a real dblclick MouseEvent on the element.
+    pub async fn dblclick(
+        &self,
+        selector: Option<&str>,
+        id: Option<usize>,
+    ) -> Result<(), RayoError> {
+        self.dblclick_raw(selector, id).await?;
+        self.invalidate_after_mutation().await;
+        Ok(())
+    }
+
+    /// Internal dblclick without cache invalidation — used by batch executor
+    /// to defer all invalidation to a single pass at the end.
+    async fn dblclick_raw(
+        &self,
+        selector: Option<&str>,
+        id: Option<usize>,
+    ) -> Result<(), RayoError> {
+        let sel = self.resolve_selector(selector, id).await?;
+        let _span = self.profiler.start_span(
+            format!("dblclick({})", truncate(&sel, 40)),
+            SpanCategory::DomMutate,
+        );
+        let element =
+            self.page
+                .find_element(&sel)
+                .await
+                .map_err(|e| RayoError::ElementNotFound {
+                    selector: format!("{sel}: {e}"),
+                })?;
+        // Scroll into view first, then dispatch dblclick via JS.
+        // chromiumoxide Element doesn't expose dblclick(), so we use
+        // scroll_into_view + JS dispatchEvent for a real dblclick.
+        element
+            .scroll_into_view()
+            .await
+            .map_err(|e| RayoError::Cdp(format!("scroll_into_view failed: {e}")))?;
+        let js = format!(
+            r#"document.querySelector({}).dispatchEvent(new MouseEvent('dblclick', {{bubbles: true, cancelable: true, view: window}}))"#,
+            serde_json::to_string(&sel).unwrap()
+        );
+        self.page
+            .evaluate(js)
+            .await
+            .map_err(|e| RayoError::Cdp(format!("dblclick failed: {e}")))?;
+        Ok(())
+    }
+
     /// Hover over an element by selector or page map ID.
     /// Uses CDP Input.dispatchMouseEvent via chromiumoxide for real mouse events.
     /// Useful for triggering dropdown menus and tooltips.
@@ -1166,6 +1215,10 @@ impl RayoPage {
                 BatchAction::Click { target } => {
                     let (sel, id) = target_to_selector_id(target);
                     self.click_raw(sel, id).await.map(|_| None)
+                }
+                BatchAction::Dblclick { target } => {
+                    let (sel, id) = target_to_selector_id(target);
+                    self.dblclick_raw(sel, id).await.map(|_| None)
                 }
                 BatchAction::Type { target, value } => {
                     let (sel, id) = target_to_selector_id(target);
@@ -2218,6 +2271,7 @@ fn target_to_selector_id(target: &ActionTarget) -> (Option<&str>, Option<usize>)
 fn action_name(action: &BatchAction) -> &'static str {
     match action {
         BatchAction::Click { .. } => "click",
+        BatchAction::Dblclick { .. } => "dblclick",
         BatchAction::Type { .. } => "type",
         BatchAction::Select { .. } => "select",
         BatchAction::Press { .. } => "press",

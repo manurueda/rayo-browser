@@ -668,6 +668,7 @@ fn to_batch_action(a: &BatchStepAction, base_url: Option<&str>) -> Option<BatchA
 
     match a.action.as_str() {
         "click" => Some(BatchAction::Click { target }),
+        "dblclick" => Some(BatchAction::Dblclick { target }),
         "type" => Some(BatchAction::Type {
             target,
             value: a.value.clone().unwrap_or_default(),

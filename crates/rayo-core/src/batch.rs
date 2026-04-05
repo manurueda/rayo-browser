@@ -15,6 +15,11 @@ pub enum BatchAction {
         #[serde(flatten)]
         target: ActionTarget,
     },
+    /// Double-click an element by page map ID or selector.
+    Dblclick {
+        #[serde(flatten)]
+        target: ActionTarget,
+    },
     /// Type text into an input.
     Type {
         #[serde(flatten)]
